@@ -6,8 +6,8 @@
 ![Expo](https://img.shields.io/badge/Expo-000020?style=for-the-badge&logo=expo&logoColor=white)
 ![Socket.IO](https://img.shields.io/badge/Socket.IO-010101?style=for-the-badge&logo=socketdotio&logoColor=white)
 ![MongoDB](https://img.shields.io/badge/MongoDB-47A248?style=for-the-badge&logo=mongodb&logoColor=white)
-
-A full-stack ride booking application for Nepal, built with modern technologies.
+<!-- 
+A full-stack ride booking application for Nepal, built with modern technologies. -->
 
 <div align="center">
   <img src="https://res.cloudinary.com/dve6uywal/image/upload/v1740041169/js62de3rwhasf8vi2vdv.jpg" alt="App Screenshot" width="600" />
