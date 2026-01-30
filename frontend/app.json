@@ -1,0 +1,58 @@
+{
+  "expo": {
+    "name": "ChetanDrive",
+    "slug": "chetan-drive",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FFDE00"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.chetandrive.app",
+      "config": {
+        "googleMapsApiKey": "YOUR_GOOGLE_MAPS_API_KEY"
+      },
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "We need your location to show nearby rides and calculate routes in Nepal.",
+        "NSLocationAlwaysUsageDescription": "We need your location to track your ride in the background."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#FFDE00"
+      },
+      "edgeToEdgeEnabled": true,
+      "package": "com.chetandrive.app",
+      "config": {
+        "googleMaps": {
+          "apiKey": "YOUR_GOOGLE_MAPS_API_KEY"
+        }
+      },
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "FOREGROUND_SERVICE"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow ChetanDrive to use your location to show nearby drivers and track your rides."
+        }
+      ],
+      "expo-asset"
+    ]
+  }
+}

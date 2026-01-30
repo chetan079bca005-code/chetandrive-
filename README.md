@@ -1,4 +1,4 @@
-# 🚕 ChetanDrive - Full Stack Ride Booking App
+<!-- # 🚕 ChetanDrive - Full Stack Ride Booking App
 
 ![ChetanDrive](https://img.shields.io/badge/ChetanDrive-Ride%20Booking-yellow?style=for-the-badge)
 ![Node.js](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)
@@ -184,7 +184,7 @@ This project is licensed under the ISC License.
 
 ---
 
-Made with ❤️ for the ride-sharing community  
+Made with ❤️ for the ride-sharing community   -->
 
 
 

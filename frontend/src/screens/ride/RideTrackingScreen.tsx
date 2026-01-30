@@ -1,0 +1,479 @@
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StatusBar,
+  Alert,
+  Dimensions,
+  Platform,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import MapView, { Marker, Polyline } from 'react-native-maps';
+import { ArrowLeft, Phone, MessageCircle, Share2, AlertTriangle } from 'lucide-react-native';
+import { useRideStore, useLocationStore } from '../../store';
+import { socketManager } from '../../services';
+import { DriverCard, RideStatusCard, Button, OSMMap, OSMMarker, OSMPolyline } from '../../components/ui';
+import { Colors } from '../../config/colors';
+import { MAP_CONFIG } from '../../config/constants';
+import { Ride, Coordinates } from '../../types';
+
+const { width, height } = Dimensions.get('window');
+
+type RouteParams = {
+  RideTracking: {
+    rideId: string;
+  };
+};
+
+export const RideTrackingScreen: React.FC = () => {
+  const navigation = useNavigation<NativeStackNavigationProp<any>>();
+  const route = useRoute<RouteProp<RouteParams, 'RideTracking'>>();
+  const { rideId } = route.params;
+  const mapRef = useRef<MapView>(null);
+
+  const {
+    currentRide,
+    setCurrentRide,
+    riderLocation,
+    setRiderLocation,
+    setSearchingRider,
+    clearRide,
+  } = useRideStore();
+
+  const { pickupLocation, dropLocation, clearLocations } = useLocationStore();
+
+  const [isSearching, setIsSearching] = useState(true);
+  const [mapCenter, setMapCenter] = useState<Coordinates>({
+    latitude: MAP_CONFIG.DEFAULT_LATITUDE,
+    longitude: MAP_CONFIG.DEFAULT_LONGITUDE,
+  });
+
+  useEffect(() => {
+    setupSocketListeners();
+    
+    // Only subscribe to ride if we don't already have currentRide data
+    if (!currentRide || currentRide._id !== rideId) {
+      subscribeToRide();
+    } else {
+      // We already have ride data (from accept offer flow)
+      setIsSearching(false);
+      setSearchingRider(false);
+    }
+
+    return () => {
+      cleanup();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (currentRide?.rider && typeof currentRide.rider === 'object') {
+      subscribeToRiderLocation(currentRide.rider._id);
+    }
+  }, [currentRide?.rider]);
+
+  const setupSocketListeners = () => {
+    socketManager.onRideUpdate((ride: Ride) => {
+      setCurrentRide(ride);
+      if (ride.status !== 'SEARCHING_FOR_RIDER') {
+        setIsSearching(false);
+        setSearchingRider(false);
+      }
+    });
+
+    socketManager.onRideAccepted(() => {
+      setIsSearching(false);
+      setSearchingRider(false);
+    });
+
+    socketManager.onRideData((ride: Ride) => {
+      setCurrentRide(ride);
+      if (ride.status !== 'SEARCHING_FOR_RIDER') {
+        setIsSearching(false);
+      }
+    });
+
+    socketManager.onRiderLocationUpdate(({ riderId, coords }) => {
+      setRiderLocation(coords);
+      animateToRider(coords);
+    });
+
+    socketManager.onRideCanceled(({ message }) => {
+      Alert.alert('Ride Canceled', message);
+      handleRideEnd();
+    });
+
+    socketManager.onError(({ message }) => {
+      // Only show error if it's not a "ride not found" type error during demo/mock mode
+      if (!message.includes('Failed to receive') && !message.includes('not found')) {
+        Alert.alert('Error', message);
+      } else {
+        console.log('Socket info:', message);
+      }
+    });
+  };
+
+  const subscribeToRide = () => {
+    socketManager.subscribeToRide(rideId);
+    socketManager.searchRider(rideId);
+    setSearchingRider(true);
+  };
+
+  const subscribeToRiderLocation = (riderId: string) => {
+    socketManager.subscribeToRiderLocation(riderId);
+  };
+
+  const animateToRider = (coords: Coordinates) => {
+    if (Platform.OS === 'android') {
+      setMapCenter(coords);
+      return;
+    }
+    mapRef.current?.animateToRegion({
+      ...coords,
+      latitudeDelta: 0.01,
+      longitudeDelta: 0.01,
+    });
+  };
+
+  const cleanup = () => {
+    socketManager.off('rideUpdate');
+    socketManager.off('rideAccepted');
+    socketManager.off('riderLocationUpdate');
+    socketManager.off('rideCanceled');
+    socketManager.off('rideData');
+    socketManager.off('error');
+  };
+
+  const handleCancelRide = () => {
+    const reasons = [
+      'Driver taking too long',
+      'Wrong pickup location',
+      'Changed my mind',
+      'Booked by mistake',
+      'Other',
+    ];
+
+    Alert.alert(
+      'Why are you cancelling?',
+      'Select a reason to help us improve the service.',
+      [
+        ...reasons.map((reason) => ({
+          text: reason,
+          onPress: () => {
+            socketManager.cancelRide();
+            handleRideEnd();
+          },
+        })),
+        { text: 'Keep ride', style: 'cancel' },
+      ]
+    );
+  };
+
+  const handleRideEnd = () => {
+    clearRide();
+    clearLocations();
+    navigation.reset({
+      index: 0,
+      routes: [{ name: 'MainDrawer' }],
+    });
+  };
+
+  const handleRideComplete = () => {
+    // Navigate to completion screen for rating
+    navigation.replace('RideCompletion', { rideId });
+  };
+
+  const handleSOS = () => {
+    Alert.alert(
+      '🚨 Emergency SOS',
+      'This will alert emergency services and your emergency contacts with your live location.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Call Emergency (100)',
+          style: 'destructive',
+          onPress: () => {
+            // In production: Linking.openURL('tel:100');
+            // Also send location to emergency contacts
+            Alert.alert('Emergency Contacted', 'Your location has been shared with emergency services.');
+          },
+        },
+      ]
+    );
+  };
+
+  const handleShareTrip = () => {
+    const tripDetails = `
+I'm on a ride with the Ride App.
+Pickup: ${pickupLocation.address}
+Drop: ${dropLocation.address}
+Driver: ${rider?.phone || 'Searching...'}
+Track my trip: https://app.example.com/track/${rideId}
+    `.trim();
+
+    Alert.alert(
+      'Share Trip',
+      'Share your live trip details with friends and family',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Share via SMS',
+          onPress: () => {
+            // In production: Share.share({ message: tripDetails });
+            Alert.alert('Trip Shared', 'Your trip details have been shared.');
+          },
+        },
+      ]
+    );
+  };
+
+  const handleCallDriver = () => {
+    if (rider) {
+      // In production: Linking.openURL(`tel:${rider.phone}`);
+      Alert.alert('Calling Driver', `Calling ${rider.phone}...`);
+    }
+  };
+
+  const handleChatDriver = () => {
+    if (rider && currentRide) {
+      navigation.navigate('Chat', {
+        rideId: currentRide._id,
+        driver: {
+          _id: rider._id,
+          name: rider.phone || 'Driver',
+          phone: rider.phone,
+          rating: 4.8,
+          totalRides: 100,
+          acceptanceRate: 95,
+          cancellationRate: 2,
+          memberSince: '2023',
+          verificationBadges: ['ID Verified'],
+          vehicle: {
+            type: currentRide.vehicle,
+            make: 'Unknown',
+            model: 'Unknown',
+            color: 'Unknown',
+            licensePlate: 'BA 1 PA 1234',
+            year: 2020,
+            capacity: 4,
+          },
+        },
+      });
+    }
+  };
+
+  useEffect(() => {
+    if (currentRide?.status === 'COMPLETED') {
+      handleRideComplete();
+    }
+  }, [currentRide?.status]);
+
+  const getRouteCoordinates = () => {
+    if (!pickupLocation.coordinates || !dropLocation.coordinates) return [];
+    return [pickupLocation.coordinates, dropLocation.coordinates];
+  };
+
+  const getRider = () => {
+    if (!currentRide?.rider || typeof currentRide.rider === 'string') {
+      return null;
+    }
+    return currentRide.rider;
+  };
+
+  const rider = getRider();
+
+  const getDriverEmoji = () => {
+    const vehicle = currentRide?.vehicle;
+    if (vehicle === 'bike') return '🏍️';
+    return '🚗';
+  };
+
+  const osmMarkers: OSMMarker[] = useMemo(() => {
+    const markers: OSMMarker[] = [];
+
+    if (pickupLocation.coordinates) {
+      markers.push({
+        latitude: pickupLocation.coordinates.latitude,
+        longitude: pickupLocation.coordinates.longitude,
+        title: 'Pickup',
+        emoji: '📍',
+        emojiSize: 22,
+      });
+    }
+
+    if (dropLocation.coordinates) {
+      markers.push({
+        latitude: dropLocation.coordinates.latitude,
+        longitude: dropLocation.coordinates.longitude,
+        title: 'Drop',
+        emoji: '🏁',
+        emojiSize: 22,
+      });
+    }
+
+    if (riderLocation) {
+      markers.push({
+        latitude: riderLocation.latitude,
+        longitude: riderLocation.longitude,
+        title: 'Driver',
+        emoji: getDriverEmoji(),
+        emojiSize: 22,
+      });
+    }
+
+    return markers;
+  }, [pickupLocation, dropLocation, riderLocation]);
+
+  const osmPolyline: OSMPolyline | undefined = useMemo(() => {
+    const coords = getRouteCoordinates();
+    if (!coords.length) return undefined;
+    return {
+      coordinates: coords,
+      color: Colors.routeColor,
+      weight: 4,
+    };
+  }, [pickupLocation, dropLocation]);
+
+  return (
+    <View className="flex-1 bg-white">
+      <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
+
+      {Platform.OS === 'android' ? (
+        <OSMMap
+          center={riderLocation || pickupLocation.coordinates || mapCenter}
+          markers={osmMarkers}
+          polyline={osmPolyline}
+          fitBounds
+          style={{ height: '55%' }}
+        />
+      ) : (
+        <MapView
+          ref={mapRef}
+          className="h-[55%]"
+          initialRegion={{
+            latitude: pickupLocation.coordinates?.latitude || MAP_CONFIG.DEFAULT_LATITUDE,
+            longitude: pickupLocation.coordinates?.longitude || MAP_CONFIG.DEFAULT_LONGITUDE,
+            latitudeDelta: MAP_CONFIG.LATITUDE_DELTA,
+            longitudeDelta: MAP_CONFIG.LONGITUDE_DELTA,
+          }}
+        >
+          <Polyline
+            coordinates={getRouteCoordinates()}
+            strokeColor={Colors.routeColor}
+            strokeWidth={4}
+          />
+
+          {pickupLocation.coordinates && (
+            <Marker coordinate={pickupLocation.coordinates} title="Pickup">
+              <View className="w-10 h-10 bg-success rounded-full items-center justify-center">
+                <Text className="text-white text-lg">📍</Text>
+              </View>
+            </Marker>
+          )}
+
+          {dropLocation.coordinates && (
+            <Marker coordinate={dropLocation.coordinates} title="Drop">
+              <View className="w-10 h-10 bg-danger rounded-full items-center justify-center">
+                <Text className="text-white text-lg">🏁</Text>
+              </View>
+            </Marker>
+          )}
+
+          {riderLocation && (
+            <Marker coordinate={riderLocation} title="Driver">
+              <View className="w-12 h-12 bg-secondary rounded-full items-center justify-center shadow-lg">
+                <Text className="text-2xl">{getDriverEmoji()}</Text>
+              </View>
+            </Marker>
+          )}
+        </MapView>
+      )}
+
+      <SafeAreaView className="absolute top-0 left-0 right-0">
+        <View className="flex-row items-center justify-between px-4 py-2">
+          <TouchableOpacity
+            onPress={() => navigation.goBack()}
+            className="w-12 h-12 bg-white rounded-full items-center justify-center shadow-lg"
+          >
+            <ArrowLeft size={24} color={Colors.secondary} />
+          </TouchableOpacity>
+
+          <View className="flex-row">
+            {/* Share Trip */}
+            <TouchableOpacity
+              onPress={handleShareTrip}
+              className="w-12 h-12 bg-white rounded-full items-center justify-center shadow-lg mr-2"
+            >
+              <Share2 size={20} color={Colors.info} />
+            </TouchableOpacity>
+            
+            {rider && (
+              <>
+                <TouchableOpacity
+                  onPress={handleCallDriver}
+                  className="w-12 h-12 bg-white rounded-full items-center justify-center shadow-lg mr-2"
+                >
+                  <Phone size={20} color={Colors.success} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={handleChatDriver}
+                  className="w-12 h-12 bg-white rounded-full items-center justify-center shadow-lg"
+                >
+                  <MessageCircle size={20} color={Colors.primary} />
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        </View>
+      </SafeAreaView>
+
+      {/* SOS Button - Always visible */}
+      <TouchableOpacity
+        onPress={handleSOS}
+        className="absolute right-4 top-24 w-14 h-14 bg-red-500 rounded-full items-center justify-center shadow-lg"
+        style={{ elevation: 10 }}
+      >
+        <AlertTriangle size={24} color={Colors.white} />
+        <Text className="text-white text-[8px] font-bold mt-0.5">SOS</Text>
+      </TouchableOpacity>
+
+      <View className="flex-1 bg-white rounded-t-3xl -mt-6 shadow-2xl">
+        <View className="w-12 h-1 bg-gray-300 rounded-full self-center mb-4" />
+
+        <RideStatusCard
+          status={currentRide?.status || 'SEARCHING_FOR_RIDER'}
+          pickupAddress={currentRide?.pickup?.address || pickupLocation.address}
+          dropAddress={currentRide?.drop?.address || dropLocation.address}
+          fare={currentRide?.fare || 0}
+          distance={currentRide?.distance || 0}
+          onCancel={handleCancelRide}
+          canCancel={currentRide?.status === 'SEARCHING_FOR_RIDER' || currentRide?.status === 'START'}
+        />
+
+        {rider && currentRide?.status !== 'SEARCHING_FOR_RIDER' && (
+          <View className="mt-4">
+            <DriverCard
+              name={rider.phone || 'Driver'}
+              rating={4.8}
+              vehicleNumber="Ba 1 Ja 1234"
+              vehicleModel={currentRide?.vehicle || 'Car'}
+              otp={currentRide?.otp || undefined}
+              onCall={() => {}}
+              onMessage={() => {}}
+            />
+          </View>
+        )}
+
+        {currentRide?.status === 'ARRIVED' && (
+          <View className="mt-4">
+            <Button title="Trip Complete" onPress={handleRideEnd} variant="primary" />
+          </View>
+        )}
+      </View>
+    </View>
+  );
+};
+
+export default RideTrackingScreen;

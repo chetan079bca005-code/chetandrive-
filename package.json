@@ -1,0 +1,23 @@
+{
+  "name": "chetandrive",
+  "version": "1.0.0",
+  "description": "Full-stack ride booking app for Nepal",
+  "scripts": {
+    "backend": "cd backend && npm start",
+    "frontend": "cd frontend && npm start",
+    "install:backend": "cd backend && npm install",
+    "install:frontend": "cd frontend && npm install",
+    "install:all": "npm run install:backend && npm run install:frontend",
+    "dev": "concurrently \"npm run backend\" \"npm run frontend\""
+  },
+  "keywords": [
+    "ride-booking",
+    "expo",
+    "react-native",
+    "nodejs",
+    "mongodb",
+    "websocket"
+  ],
+  "author": "",
+  "license": "ISC"
+}
