@@ -9,7 +9,7 @@
 <!-- 
 A full-stack ride booking application for Nepal, built with modern technologies. -->
 
-<div align="center">
+<!-- <div align="center">
   <img src="https://res.cloudinary.com/dve6uywal/image/upload/v1740041169/js62de3rwhasf8vi2vdv.jpg" alt="App Screenshot" width="600" />
   
   <br/>
@@ -17,7 +17,7 @@ A full-stack ride booking application for Nepal, built with modern technologies.
   <a href="https://m.youtube.com/watch?v=u_8-jF01hW8">
     <img src="https://img.shields.io/badge/YouTube-FF0000?style=for-the-badge&logo=youtube&logoColor=white" alt="YouTube">
   </a>
-</div>
+</div> -->
 
 ## 🗿 Tech Stack
 
@@ -176,7 +176,7 @@ This project uses free OpenStreetMap tiles with Nominatim (geocoding) and OSRM (
 
 If you found ChetanDrive helpful, consider giving it a **star** ⭐!  
 
-📺 Don't forget to **like & subscribe** on [YouTube](https://m.youtube.com/watch?v=u_8-jF01hW8) for more awesome content.  
+<!-- 📺 Don't forget to **like & subscribe** on [YouTube](https://m.youtube.com/watch?v=u_8-jF01hW8) for more awesome content.   -->
 
 ## 📄 License
 
@@ -184,7 +184,7 @@ This project is licensed under the ISC License.
 
 ---
 
-Made with ❤️ for the ride-sharing community   -->
+Made with ❤️ for chetan koirala   -->
 
 
 
