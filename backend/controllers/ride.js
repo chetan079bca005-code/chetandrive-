@@ -8,10 +8,17 @@ import {
 } from "../utils/mapUtils.js";
 
 export const createRide = async (req, res) => {
-  const { vehicle, pickup, drop } = req.body;
+  const {
+    vehicle,
+    pickup,
+    drop,
+    proposedFare,
+    serviceType = "city",
+    serviceDetails = {},
+  } = req.body;
 
-  if (!vehicle || !pickup || !drop) {
-    throw new BadRequestError("Vehicle, pickup, and drop details are required");
+  if (!vehicle || !pickup || !drop || !proposedFare) {
+    throw new BadRequestError("Vehicle, pickup, drop, and proposed fare are required");
   }
 
   const {
@@ -37,12 +44,21 @@ export const createRide = async (req, res) => {
 
   try {
     const distance = calculateDistance(pickupLat, pickupLon, dropLat, dropLon);
-    const fare = calculateFare(distance, vehicle);
+    const fare = calculateFare(distance);
+    const recommendedFare = Math.round(fare[vehicle]);
+    const normalizedProposedFare = Math.round(Number(proposedFare));
+    if (!normalizedProposedFare || normalizedProposedFare <= 0) {
+      throw new BadRequestError("Invalid proposed fare");
+    }
 
     const ride = new Ride({
       vehicle,
+      serviceType,
       distance,
-      fare: fare[vehicle],
+      fare: normalizedProposedFare,
+      proposedFare: normalizedProposedFare,
+      recommendedFare,
+      serviceDetails,
       pickup: {
         address: pickupAddress,
         latitude: pickupLat,
@@ -65,6 +81,261 @@ export const createRide = async (req, res) => {
   }
 };
 
+export const createRideOffer = async (req, res) => {
+  const { rideId } = req.params;
+  const { offeredFare, eta = 0, distanceToPickup = 0 } = req.body;
+
+  if (!rideId || !offeredFare) {
+    throw new BadRequestError("Ride ID and offered fare are required");
+  }
+
+  if (req.user.role !== "rider") {
+    throw new BadRequestError("Only riders can make offers");
+  }
+
+  const ride = await Ride.findById(rideId).populate("customer rider");
+  if (!ride) throw new NotFoundError("Ride not found");
+
+  if (ride.status !== "SEARCHING_FOR_RIDER") {
+    throw new BadRequestError("Ride is not accepting offers");
+  }
+
+  const offer = {
+    driver: req.user.id,
+    offeredFare: Math.round(Number(offeredFare)),
+    eta: Number(eta) || 0,
+    distanceToPickup: Number(distanceToPickup) || 0,
+    status: "pending",
+  };
+
+  ride.offers.push(offer);
+  await ride.save();
+
+  const populatedRide = await Ride.findById(rideId)
+    .populate("customer", "name phone rating totalRides")
+    .populate("rider", "name phone rating totalRides")
+    .populate("offers.driver", "name phone rating totalRides vehicle acceptanceRate cancellationRate memberSince verificationBadges");
+
+  req.socket.to(`ride_${rideId}`).emit("offerUpdate", populatedRide.offers);
+
+  res.status(StatusCodes.CREATED).json({
+    message: "Offer created",
+    offers: populatedRide.offers,
+  });
+};
+
+export const counterRideOffer = async (req, res) => {
+  const { rideId, offerId } = req.params;
+  const { amount, message = "" } = req.body;
+
+  if (!rideId || !offerId || !amount) {
+    throw new BadRequestError("Ride ID, offer ID, and amount are required");
+  }
+
+  const ride = await Ride.findById(rideId);
+  if (!ride) throw new NotFoundError("Ride not found");
+
+  const offer = ride.offers.id(offerId);
+  if (!offer) throw new NotFoundError("Offer not found");
+
+  const from = req.user.role === "rider" ? "driver" : "passenger";
+
+  offer.counterOffers.push({
+    from,
+    amount: Math.round(Number(amount)),
+    message,
+  });
+  offer.status = "countered";
+  await ride.save();
+
+  req.socket.to(`ride_${rideId}`).emit("offerUpdate", ride.offers);
+
+  res.status(StatusCodes.OK).json({
+    message: "Counter offer sent",
+    offers: ride.offers,
+  });
+};
+
+export const acceptRideOffer = async (req, res) => {
+  const { rideId, offerId } = req.params;
+
+  if (!rideId || !offerId) {
+    throw new BadRequestError("Ride ID and offer ID are required");
+  }
+
+  if (req.user.role !== "customer") {
+    throw new BadRequestError("Only customers can accept offers");
+  }
+
+  let ride = await Ride.findById(rideId).populate("customer rider");
+  if (!ride) throw new NotFoundError("Ride not found");
+
+  if (ride.status !== "SEARCHING_FOR_RIDER") {
+    throw new BadRequestError("Ride is no longer accepting offers");
+  }
+
+  const offer = ride.offers.id(offerId);
+  if (!offer) throw new NotFoundError("Offer not found");
+
+  ride.offers.forEach((o) => {
+    if (o._id.toString() === offerId) {
+      o.status = "accepted";
+    } else {
+      o.status = "rejected";
+    }
+  });
+
+  ride.rider = offer.driver;
+  ride.fare = offer.offeredFare;
+  ride.status = "ACCEPTED";
+  ride.acceptedOfferId = offer._id;
+  await ride.save();
+
+  ride = await ride.populate("rider", "name phone rating totalRides vehicle acceptanceRate cancellationRate memberSince verificationBadges");
+
+  req.socket.to(`ride_${rideId}`).emit("rideAccepted");
+  req.socket.to(`ride_${rideId}`).emit("rideUpdate", ride);
+
+  res.status(StatusCodes.OK).json({
+    message: "Offer accepted",
+    ride,
+  });
+};
+
+export const rejectRideOffer = async (req, res) => {
+  const { rideId, offerId } = req.params;
+
+  if (!rideId || !offerId) {
+    throw new BadRequestError("Ride ID and offer ID are required");
+  }
+
+  const ride = await Ride.findById(rideId);
+  if (!ride) throw new NotFoundError("Ride not found");
+
+  const offer = ride.offers.id(offerId);
+  if (!offer) throw new NotFoundError("Offer not found");
+
+  offer.status = "rejected";
+  await ride.save();
+
+  req.socket.to(`ride_${rideId}`).emit("offerUpdate", ride.offers);
+
+  res.status(StatusCodes.OK).json({
+    message: "Offer rejected",
+    offers: ride.offers,
+  });
+};
+
+export const getRideOffers = async (req, res) => {
+  const { rideId } = req.params;
+  if (!rideId) throw new BadRequestError("Ride ID is required");
+
+  const ride = await Ride.findById(rideId)
+    .populate("offers.driver", "name phone rating totalRides vehicle acceptanceRate cancellationRate memberSince verificationBadges");
+
+  if (!ride) throw new NotFoundError("Ride not found");
+
+  res.status(StatusCodes.OK).json({
+    message: "Offers retrieved",
+    offers: ride.offers,
+  });
+};
+
+export const cancelRide = async (req, res) => {
+  const { rideId } = req.params;
+  if (!rideId) throw new BadRequestError("Ride ID is required");
+
+  const ride = await Ride.findById(rideId);
+  if (!ride) throw new NotFoundError("Ride not found");
+
+  if (ride.status === "COMPLETED") {
+    throw new BadRequestError("Completed rides cannot be canceled");
+  }
+
+  await Ride.findByIdAndDelete(rideId);
+  req.socket.to(`ride_${rideId}`).emit("rideCanceled", { message: "Ride canceled" });
+
+  res.status(StatusCodes.OK).json({
+    message: "Ride canceled",
+  });
+};
+
+export const rateRide = async (req, res) => {
+  const { rideId } = req.params;
+  const { rating, feedbackTags = [], comment = "", tip = 0 } = req.body;
+
+  if (!rideId || !rating) {
+    throw new BadRequestError("Ride ID and rating are required");
+  }
+
+  const normalizedRating = Number(rating);
+  if (normalizedRating < 1 || normalizedRating > 5) {
+    throw new BadRequestError("Rating must be between 1 and 5");
+  }
+
+  const ride = await Ride.findById(rideId).populate("customer rider");
+  if (!ride) throw new NotFoundError("Ride not found");
+
+  const isCustomer = req.user.role === "customer";
+  const isRider = req.user.role === "rider";
+
+  if (!isCustomer && !isRider) {
+    throw new BadRequestError("Invalid rater role");
+  }
+
+  if (ride.status !== "COMPLETED") {
+    throw new BadRequestError("Ride must be completed to submit rating");
+  }
+
+  if (isCustomer) {
+    if (!ride.rider || typeof ride.rider === "string") {
+      throw new BadRequestError("Ride has no assigned driver");
+    }
+    if (ride.customerRating?.rating) {
+      throw new BadRequestError("Rating already submitted");
+    }
+
+    ride.customerRating = {
+      rating: normalizedRating,
+      feedbackTags,
+      comment,
+      tip: Number(tip) || 0,
+    };
+
+    const driver = ride.rider;
+    driver.rating = ((driver.rating || 0) * (driver.ratingCount || 0) + normalizedRating) / ((driver.ratingCount || 0) + 1);
+    driver.ratingCount = (driver.ratingCount || 0) + 1;
+    await driver.save();
+  }
+
+  if (isRider) {
+    if (!ride.customer || typeof ride.customer === "string") {
+      throw new BadRequestError("Ride has no assigned customer");
+    }
+    if (ride.riderRating?.rating) {
+      throw new BadRequestError("Rating already submitted");
+    }
+
+    ride.riderRating = {
+      rating: normalizedRating,
+      feedbackTags,
+      comment,
+    };
+
+    const customer = ride.customer;
+    customer.rating = ((customer.rating || 0) * (customer.ratingCount || 0) + normalizedRating) / ((customer.ratingCount || 0) + 1);
+    customer.ratingCount = (customer.ratingCount || 0) + 1;
+    await customer.save();
+  }
+
+  await ride.save();
+
+  res.status(StatusCodes.OK).json({
+    message: "Rating submitted",
+    ride,
+  });
+};
+
 export const acceptRide = async (req, res) => {
   const riderId = req.user.id;
   const { rideId } = req.params;
@@ -85,7 +356,7 @@ export const acceptRide = async (req, res) => {
     }
 
     ride.rider = riderId;
-    ride.status = "START";
+    ride.status = "ACCEPTED";
     await ride.save();
 
     ride = await ride.populate("rider");
@@ -118,7 +389,7 @@ export const updateRideStatus = async (req, res) => {
       throw new NotFoundError("Ride not found");
     }
 
-    if (!["START", "ARRIVED", "COMPLETED"].includes(status)) {
+    if (!["ACCEPTED", "ARRIVED", "START", "COMPLETED"].includes(status)) {
       throw new BadRequestError("Invalid ride status");
     }
 
@@ -164,4 +435,34 @@ export const getMyRides = async (req, res) => {
     console.error("Error retrieving rides:", error);
     throw new BadRequestError("Failed to retrieve rides");
   }
+};
+
+export const verifyRideOtp = async (req, res) => {
+  const { rideId } = req.params;
+  const { otp } = req.body;
+
+  if (!rideId || !otp) {
+    throw new BadRequestError("Ride ID and OTP are required");
+  }
+
+  if (req.user.role !== "rider") {
+    throw new BadRequestError("Only riders can verify OTP");
+  }
+
+  const ride = await Ride.findById(rideId).populate("customer rider");
+  if (!ride) throw new NotFoundError("Ride not found");
+
+  if (ride.otp !== otp) {
+    throw new BadRequestError("Invalid OTP");
+  }
+
+  ride.status = "START";
+  await ride.save();
+
+  req.socket.to(`ride_${rideId}`).emit("rideUpdate", ride);
+
+  res.status(StatusCodes.OK).json({
+    message: "OTP verified",
+    ride,
+  });
 };

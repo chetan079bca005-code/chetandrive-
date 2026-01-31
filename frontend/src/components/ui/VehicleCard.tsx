@@ -1,13 +1,8 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, Animated, LayoutAnimation, Platform, UIManager } from 'react-native';
+import { View, Text, TouchableOpacity, Animated, LayoutAnimation } from 'react-native';
 import { Check, ChevronDown, ChevronUp, Minus, Plus } from 'lucide-react-native';
 import { Colors } from '../../config/colors';
 import { VehicleType } from '../../types';
-
-// Enable LayoutAnimation for Android
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
 
 interface VehicleCardProps {
   id: VehicleType;
@@ -28,6 +23,10 @@ const vehicleEmojis: Record<VehicleType, string> = {
   auto: '🛺',
   cabEconomy: '🚗',
   cabPremium: '🚙',
+  pickupTruck: '🛻',
+  miniTruck: '🚚',
+  largeTruck: '🚛',
+  containerTruck: '📦',
 };
 
 export const VehicleCard: React.FC<VehicleCardProps> = ({

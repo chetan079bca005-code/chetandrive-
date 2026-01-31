@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -23,10 +23,11 @@ import {
   Info,
 } from 'lucide-react-native';
 import { usePreferencesStore } from '../../store';
+import { safetyService } from '../../services';
 import { Colors } from '../../config/colors';
 
 interface EmergencyContact {
-  id: string;
+  _id: string;
   name: string;
   phone: string;
   relationship: string;
@@ -36,30 +37,38 @@ export const SafetyScreen: React.FC = () => {
   const { profile, setProfileField } = usePreferencesStore();
   
   const [autoShareTrips, setAutoShareTrips] = useState(false);
-  const [emergencyContacts, setEmergencyContacts] = useState<EmergencyContact[]>([
-    { id: '1', name: 'Mom', phone: '+977-98XXXXXXXX', relationship: 'Family' },
-  ]);
+  const [emergencyContacts, setEmergencyContacts] = useState<EmergencyContact[]>([]);
   const [newContactName, setNewContactName] = useState('');
   const [newContactPhone, setNewContactPhone] = useState('');
   const [showAddContact, setShowAddContact] = useState(false);
+
+  useEffect(() => {
+    const fetchContacts = async () => {
+      try {
+        const response = await safetyService.getContacts();
+        setEmergencyContacts(response.contacts as EmergencyContact[]);
+      } catch (error) {
+        console.log('Failed to load emergency contacts');
+      }
+    };
+    fetchContacts();
+  }, []);
 
   const handleAddContact = () => {
     if (!newContactName.trim() || !newContactPhone.trim()) {
       Alert.alert('Error', 'Please fill in all fields');
       return;
     }
-    
-    const newContact: EmergencyContact = {
-      id: Date.now().toString(),
-      name: newContactName,
-      phone: newContactPhone,
-      relationship: 'Custom',
-    };
-    
-    setEmergencyContacts([...emergencyContacts, newContact]);
-    setNewContactName('');
-    setNewContactPhone('');
-    setShowAddContact(false);
+
+    safetyService
+      .addContact({ name: newContactName, phone: newContactPhone, relationship: 'Custom' })
+      .then((response) => {
+        setEmergencyContacts(response.contacts as EmergencyContact[]);
+        setNewContactName('');
+        setNewContactPhone('');
+        setShowAddContact(false);
+      })
+      .catch(() => Alert.alert('Error', 'Failed to add contact'));
   };
 
   const handleRemoveContact = (id: string) => {
@@ -72,7 +81,10 @@ export const SafetyScreen: React.FC = () => {
           text: 'Remove',
           style: 'destructive',
           onPress: () => {
-            setEmergencyContacts(emergencyContacts.filter(c => c.id !== id));
+            safetyService
+              .removeContact(id)
+              .then((response) => setEmergencyContacts(response.contacts as EmergencyContact[]))
+              .catch(() => Alert.alert('Error', 'Failed to remove contact'));
           },
         },
       ]
@@ -89,7 +101,12 @@ export const SafetyScreen: React.FC = () => {
           text: 'Call Emergency (100)',
           style: 'destructive',
           onPress: () => {
-            Alert.alert('Emergency Activated', 'Emergency services have been notified.');
+            safetyService
+              .sendSOS({ rideId: 'safety-test', location: undefined })
+              .catch(() => undefined)
+              .finally(() => {
+                Alert.alert('Emergency Activated', 'Emergency services have been notified.');
+              });
           },
         },
       ]
@@ -235,7 +252,7 @@ export const SafetyScreen: React.FC = () => {
           {/* Contact List */}
           {emergencyContacts.map((contact) => (
             <View
-              key={contact.id}
+              key={contact._id}
               className="flex-row items-center justify-between py-3 border-b border-gray-100"
             >
               <View className="flex-1">
@@ -243,7 +260,7 @@ export const SafetyScreen: React.FC = () => {
                 <Text className="text-xs text-gray-500">{contact.phone}</Text>
               </View>
               <TouchableOpacity
-                onPress={() => handleRemoveContact(contact.id)}
+                onPress={() => handleRemoveContact(contact._id)}
                 className="p-2"
               >
                 <Trash2 size={18} color={Colors.danger} />

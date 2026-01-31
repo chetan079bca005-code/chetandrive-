@@ -40,6 +40,7 @@ interface PlaceResult {
 type RouteParams = {
   LocationSearch: {
     type: 'pickup' | 'drop';
+    serviceType?: 'city' | 'intercity' | 'delivery' | 'freight';
   };
 };
 
@@ -88,7 +89,7 @@ const recentPlaces: PlaceResult[] = [
 export const LocationSearchScreen: React.FC = () => {
   const navigation = useNavigation<NativeStackNavigationProp<any>>();
   const route = useRoute<RouteProp<RouteParams, 'LocationSearch'>>();
-  const { type } = route.params;
+  const { type, serviceType } = route.params;
 
   const { setPickupLocation, setDropLocation, currentLocation, pickupLocation } = useLocationStore();
 
@@ -192,7 +193,7 @@ export const LocationSearchScreen: React.FC = () => {
 
     // Navigate to ride confirmation if drop location is set
     if (!isPickup && coordinates) {
-      navigation.navigate('RideConfirmation');
+      navigation.navigate('RideConfirmation', { serviceType });
     } else {
       navigation.goBack();
     }

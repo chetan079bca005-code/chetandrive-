@@ -22,21 +22,52 @@ export interface Coordinates {
 export interface Ride {
   _id: string;
   vehicle: VehicleType;
+  serviceType?: 'city' | 'intercity' | 'delivery' | 'freight';
   distance: number;
   pickup: Location;
   drop: Location;
   fare: number;
+  proposedFare?: number;
+  recommendedFare?: number;
+  serviceDetails?: {
+    delivery?: {
+      packageType?: string;
+      description?: string;
+    };
+    freight?: {
+      vehicleCategory?: string;
+      goodsDescription?: string;
+      weight?: string;
+      services?: string[];
+    };
+    intercity?: {
+      fromCity?: string;
+      toCity?: string;
+      date?: string;
+      passengers?: number;
+    };
+  };
   customer: User | string;
   rider: User | string | null;
   status: RideStatus;
+  offers?: DriverOffer[];
+  acceptedOfferId?: string | null;
   otp: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
-export type VehicleType = 'bike' | 'auto' | 'cabEconomy' | 'cabPremium';
+export type VehicleType =
+  | 'bike'
+  | 'auto'
+  | 'cabEconomy'
+  | 'cabPremium'
+  | 'pickupTruck'
+  | 'miniTruck'
+  | 'largeTruck'
+  | 'containerTruck';
 
-export type RideStatus = 'SEARCHING_FOR_RIDER' | 'START' | 'ARRIVED' | 'COMPLETED';
+export type RideStatus = 'SEARCHING_FOR_RIDER' | 'ACCEPTED' | 'ARRIVED' | 'START' | 'COMPLETED';
 
 export interface VehicleOption {
   id: VehicleType;
@@ -50,8 +81,10 @@ export interface VehicleOption {
 
 export interface RiderInfo {
   socketId: string;
+  riderId?: string;
   coords: Coordinates;
   distance: number;
+  profile?: DriverProfile;
 }
 
 export interface AuthTokens {
@@ -70,6 +103,9 @@ export interface CreateRideRequest {
   vehicle: VehicleType;
   pickup: Location;
   drop: Location;
+  proposedFare: number;
+  serviceType?: 'city' | 'intercity' | 'delivery' | 'freight';
+  serviceDetails?: Ride['serviceDetails'];
 }
 
 export interface CreateRideResponse {
@@ -82,6 +118,10 @@ export interface FareEstimate {
   auto: number;
   cabEconomy: number;
   cabPremium: number;
+  pickupTruck: number;
+  miniTruck: number;
+  largeTruck: number;
+  containerTruck: number;
 }
 
 export interface PlacePrediction {
@@ -115,6 +155,7 @@ export interface SocketListeners {
   rideCanceled: (data: { message: string }) => void;
   riderLocationUpdate: (data: { riderId: string; coords: Coordinates }) => void;
   rideData: (ride: Ride) => void;
+  offerUpdate: (offers: DriverOffer[]) => void;
   error: (data: { message: string }) => void;
 }
 
@@ -150,11 +191,11 @@ export interface DriverOffer {
   rideRequestId: string;
   driver: DriverProfile;
   offeredFare: number;
-  originalFare: number;
-  priceComparison: 'below' | 'equal' | 'above';
+  originalFare?: number;
+  priceComparison?: 'below' | 'equal' | 'above';
   eta: number; // minutes to pickup
   distance: number; // km to pickup
-  expiresAt: string;
+  expiresAt?: string;
   status: 'pending' | 'accepted' | 'rejected' | 'expired' | 'countered';
   counterOffers?: CounterOffer[];
   createdAt: string;

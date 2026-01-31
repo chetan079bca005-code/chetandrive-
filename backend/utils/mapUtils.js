@@ -18,6 +18,10 @@ export const calculateFare = (distance) => {
     auto: { baseFare: 15, perKmRate: 7, minimumFare: 30 },
     cabEconomy: { baseFare: 20, perKmRate: 10, minimumFare: 50 },
     cabPremium: { baseFare: 30, perKmRate: 15, minimumFare: 70 },
+    pickupTruck: { baseFare: 200, perKmRate: 30, minimumFare: 400 },
+    miniTruck: { baseFare: 350, perKmRate: 45, minimumFare: 700 },
+    largeTruck: { baseFare: 600, perKmRate: 70, minimumFare: 1200 },
+    containerTruck: { baseFare: 1000, perKmRate: 110, minimumFare: 2000 },
   };
 
   const fareCalculation = (baseFare, perKmRate, minimumFare) => {
@@ -45,6 +49,26 @@ export const calculateFare = (distance) => {
       rateStructure.cabPremium.baseFare,
       rateStructure.cabPremium.perKmRate,
       rateStructure.cabPremium.minimumFare
+    ),
+    pickupTruck: fareCalculation(
+      rateStructure.pickupTruck.baseFare,
+      rateStructure.pickupTruck.perKmRate,
+      rateStructure.pickupTruck.minimumFare
+    ),
+    miniTruck: fareCalculation(
+      rateStructure.miniTruck.baseFare,
+      rateStructure.miniTruck.perKmRate,
+      rateStructure.miniTruck.minimumFare
+    ),
+    largeTruck: fareCalculation(
+      rateStructure.largeTruck.baseFare,
+      rateStructure.largeTruck.perKmRate,
+      rateStructure.largeTruck.minimumFare
+    ),
+    containerTruck: fareCalculation(
+      rateStructure.containerTruck.baseFare,
+      rateStructure.containerTruck.perKmRate,
+      rateStructure.containerTruck.minimumFare
     ),
   };
 };

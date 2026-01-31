@@ -22,7 +22,8 @@ import {
   Clock,
   Navigation,
 } from 'lucide-react-native';
-import { useRideStore } from '../../store';
+import { useRideStore, useAuthStore, useLocationStore } from '../../store';
+import { rideService } from '../../services';
 import { Colors } from '../../config/colors';
 import { FeedbackTag } from '../../types';
 
@@ -59,7 +60,10 @@ const tipOptions = [
 export const RideCompletionScreen: React.FC = () => {
   const navigation = useNavigation<any>();
   const route = useRoute<RouteProp<RouteParams, 'RideCompletion'>>();
-  const { currentRide, clearRide } = useRideStore();
+  const { currentRide, clearRide, clearServiceDetails } = useRideStore();
+  const { clearLocations } = useLocationStore();
+  const { user } = useAuthStore();
+  const isRider = user?.role === 'rider';
 
   const [rating, setRating] = useState(0);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
@@ -100,14 +104,41 @@ export const RideCompletionScreen: React.FC = () => {
   };
 
   const driverData = {
-    name: 'Ram Sharma',
+    name:
+      typeof currentRide?.rider === 'object'
+        ? (currentRide.rider as any).phone || 'Driver'
+        : 'Driver',
     photo: null,
-    rating: 4.8,
+    rating:
+      typeof currentRide?.rider === 'object'
+        ? (currentRide.rider as any).rating || 4.8
+        : 4.8,
     vehicle: {
-      make: 'Toyota',
-      model: 'Corolla',
-      licensePlate: 'BA 1 PA 1234',
+      make:
+        typeof currentRide?.rider === 'object'
+          ? (currentRide.rider as any).vehicle?.make || 'Unknown'
+          : 'Unknown',
+      model:
+        typeof currentRide?.rider === 'object'
+          ? (currentRide.rider as any).vehicle?.model || ''
+          : '',
+      licensePlate:
+        typeof currentRide?.rider === 'object'
+          ? (currentRide.rider as any).vehicle?.licensePlate || ''
+          : '',
     },
+  };
+
+  const passengerData = {
+    name:
+      typeof currentRide?.customer === 'object'
+        ? (currentRide.customer as any).phone || 'Passenger'
+        : 'Passenger',
+    photo: null,
+    rating:
+      typeof currentRide?.customer === 'object'
+        ? (currentRide.customer as any).rating || 4.8
+        : 4.8,
   };
 
   const fareBreakdown = {
@@ -137,13 +168,19 @@ export const RideCompletionScreen: React.FC = () => {
     setIsSubmitting(true);
 
     try {
-      // In production: await rideService.rateRide({ ... })
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await rideService.rateRide(route.params.rideId, {
+        rating,
+        feedbackTags: selectedTags,
+        comment,
+        tip: selectedTip,
+      });
 
       setShowSuccess(true);
 
       setTimeout(() => {
         clearRide();
+        clearServiceDetails();
+        clearLocations();
         navigation.reset({
           index: 0,
           routes: [{ name: 'MainDrawer' }],
@@ -158,6 +195,8 @@ export const RideCompletionScreen: React.FC = () => {
 
   const handleSkip = () => {
     clearRide();
+    clearServiceDetails();
+    clearLocations();
     navigation.reset({
       index: 0,
       routes: [{ name: 'MainDrawer' }],
@@ -223,8 +262,12 @@ export const RideCompletionScreen: React.FC = () => {
             >
               <Check size={40} color={Colors.white} strokeWidth={3} />
             </Animated.View>
-            <Text className="text-2xl font-bold text-secondary">Ride Completed!</Text>
-            <Text className="text-gray-500 mt-1">Thank you for riding with us</Text>
+            <Text className="text-2xl font-bold text-secondary">
+              {isRider ? 'Trip Completed!' : 'Ride Completed!'}
+            </Text>
+            <Text className="text-gray-500 mt-1">
+              {isRider ? 'Thanks for driving with us' : 'Thank you for riding with us'}
+            </Text>
           </View>
 
           {/* Trip Summary Card */}
@@ -303,12 +346,18 @@ export const RideCompletionScreen: React.FC = () => {
           {/* Rating Section */}
           <View className="mx-4 bg-white border border-gray-200 rounded-2xl p-4 mb-4">
             <Text className="text-center font-semibold text-secondary mb-2">
-              How was your ride with {driverData.name}?
+              {isRider
+                ? `How was your trip with ${passengerData.name}?`
+                : `How was your ride with ${driverData.name}?`}
             </Text>
 
             {/* Driver Info */}
             <View className="flex-row items-center justify-center mb-4">
-              {driverData.photo ? (
+              {isRider ? (
+                <View className="w-16 h-16 rounded-full bg-gray-100 items-center justify-center">
+                  <User size={32} color={Colors.gray400} />
+                </View>
+              ) : driverData.photo ? (
                 <Image
                   source={{ uri: driverData.photo }}
                   className="w-16 h-16 rounded-full"
@@ -389,7 +438,7 @@ export const RideCompletionScreen: React.FC = () => {
           </View>
 
           {/* Tip Section */}
-          {rating >= 4 && (
+          {rating >= 4 && !isRider && (
             <View className="mx-4 bg-white border border-gray-200 rounded-2xl p-4 mb-4">
               <Text className="text-center font-semibold text-secondary mb-1">
                 Add a tip for {driverData.name}?
@@ -455,7 +504,16 @@ export const RideCompletionScreen: React.FC = () => {
             </View>
 
             <TouchableOpacity
-              onPress={() => navigation.navigate('RideConfirmation')}
+              onPress={() => {
+                if (isRider) {
+                  navigation.reset({
+                    index: 0,
+                    routes: [{ name: 'MainDrawer' }],
+                  });
+                  return;
+                }
+                navigation.navigate('RideConfirmation');
+              }}
               className="flex-row items-center justify-center mt-3 py-2"
             >
               <Car size={16} color={Colors.primary} />

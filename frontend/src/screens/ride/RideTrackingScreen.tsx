@@ -7,14 +7,17 @@ import {
   Alert,
   Dimensions,
   Platform,
+  TextInput,
+  ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import { ArrowLeft, Phone, MessageCircle, Share2, AlertTriangle } from 'lucide-react-native';
-import { useRideStore, useLocationStore } from '../../store';
-import { socketManager } from '../../services';
+import { useRideStore, useLocationStore, useAuthStore } from '../../store';
+import { socketManager, safetyService, rideService, galliMapsService } from '../../services';
+import { triggerAlertFeedback } from '../../utils/alertUtils';
 import { DriverCard, RideStatusCard, Button, OSMMap, OSMMarker, OSMPolyline } from '../../components/ui';
 import { Colors } from '../../config/colors';
 import { MAP_CONFIG } from '../../config/constants';
@@ -40,8 +43,11 @@ export const RideTrackingScreen: React.FC = () => {
     riderLocation,
     setRiderLocation,
     setSearchingRider,
+    clearServiceDetails,
     clearRide,
   } = useRideStore();
+  const { user } = useAuthStore();
+  const isRider = user?.role === 'rider';
 
   const { pickupLocation, dropLocation, clearLocations } = useLocationStore();
 
@@ -50,6 +56,11 @@ export const RideTrackingScreen: React.FC = () => {
     latitude: MAP_CONFIG.DEFAULT_LATITUDE,
     longitude: MAP_CONFIG.DEFAULT_LONGITUDE,
   });
+  const [otpInput, setOtpInput] = useState('');
+  const [lastStatus, setLastStatus] = useState<Ride['status'] | null>(null);
+  const [routeCoordinates, setRouteCoordinates] = useState<Coordinates[]>([]);
+  const [simulatedLocation, setSimulatedLocation] = useState<Coordinates | null>(null);
+  const simulationIndexRef = useRef(0);
 
   useEffect(() => {
     setupSocketListeners();
@@ -77,6 +88,11 @@ export const RideTrackingScreen: React.FC = () => {
   const setupSocketListeners = () => {
     socketManager.onRideUpdate((ride: Ride) => {
       setCurrentRide(ride);
+      if (!isRider && ride.status === 'ARRIVED' && lastStatus !== 'ARRIVED') {
+        triggerAlertFeedback('arrival');
+        Alert.alert('Driver Arrived', 'Your driver has arrived at pickup location.');
+      }
+      setLastStatus(ride.status);
       if (ride.status !== 'SEARCHING_FOR_RIDER') {
         setIsSearching(false);
         setSearchingRider(false);
@@ -90,6 +106,11 @@ export const RideTrackingScreen: React.FC = () => {
 
     socketManager.onRideData((ride: Ride) => {
       setCurrentRide(ride);
+      if (!isRider && ride.status === 'ARRIVED' && lastStatus !== 'ARRIVED') {
+        triggerAlertFeedback('arrival');
+        Alert.alert('Driver Arrived', 'Your driver has arrived at pickup location.');
+      }
+      setLastStatus(ride.status);
       if (ride.status !== 'SEARCHING_FOR_RIDER') {
         setIsSearching(false);
       }
@@ -166,13 +187,14 @@ export const RideTrackingScreen: React.FC = () => {
             handleRideEnd();
           },
         })),
-        { text: 'Keep ride', style: 'cancel' },
+        { text: 'Cancel', style: 'cancel' },
       ]
     );
   };
 
   const handleRideEnd = () => {
     clearRide();
+    clearServiceDetails();
     clearLocations();
     navigation.reset({
       index: 0,
@@ -185,6 +207,39 @@ export const RideTrackingScreen: React.FC = () => {
     navigation.replace('RideCompletion', { rideId });
   };
 
+  const handleMarkArrived = async () => {
+    if (!currentRide) return;
+    try {
+      await rideService.updateRideStatus(currentRide._id, { status: 'ARRIVED' });
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Failed to update status');
+    }
+  };
+
+  const handleVerifyOtp = async () => {
+    if (!currentRide) return;
+    if (!otpInput.trim()) {
+      Alert.alert('OTP Required', 'Enter the OTP from the passenger');
+      return;
+    }
+    try {
+      await rideService.verifyOtp(currentRide._id, otpInput.trim());
+      setOtpInput('');
+    } catch (error: any) {
+      Alert.alert('Invalid OTP', error.response?.data?.message || 'OTP verification failed');
+    }
+  };
+
+  const handleDriverComplete = async () => {
+    if (!currentRide) return;
+    try {
+      await rideService.updateRideStatus(currentRide._id, { status: 'COMPLETED' });
+      handleRideComplete();
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Failed to complete ride');
+    }
+  };
+
   const handleSOS = () => {
     Alert.alert(
       '🚨 Emergency SOS',
@@ -195,9 +250,15 @@ export const RideTrackingScreen: React.FC = () => {
           text: 'Call Emergency (100)',
           style: 'destructive',
           onPress: () => {
-            // In production: Linking.openURL('tel:100');
-            // Also send location to emergency contacts
-            Alert.alert('Emergency Contacted', 'Your location has been shared with emergency services.');
+            safetyService
+              .sendSOS({
+                rideId,
+                location: riderLocation || pickupLocation.coordinates || undefined,
+              })
+              .catch(() => undefined)
+              .finally(() => {
+                Alert.alert('Emergency Contacted', 'Your location has been shared with emergency services.');
+              });
           },
         },
       ]
@@ -205,28 +266,33 @@ export const RideTrackingScreen: React.FC = () => {
   };
 
   const handleShareTrip = () => {
-    const tripDetails = `
-I'm on a ride with the Ride App.
+    safetyService
+      .shareTrip({ rideId, sharedWith: [], expiresInMinutes: 120 })
+      .then((response) => {
+        const tripDetails = `
+I'm on a ride with ChetanDrive.
 Pickup: ${pickupLocation.address}
 Drop: ${dropLocation.address}
 Driver: ${rider?.phone || 'Searching...'}
-Track my trip: https://app.example.com/track/${rideId}
-    `.trim();
+Track my trip: ${response.shareLink}
+        `.trim();
 
-    Alert.alert(
-      'Share Trip',
-      'Share your live trip details with friends and family',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Share via SMS',
-          onPress: () => {
-            // In production: Share.share({ message: tripDetails });
-            Alert.alert('Trip Shared', 'Your trip details have been shared.');
-          },
-        },
-      ]
-    );
+        Alert.alert(
+          'Share Trip',
+          'Share your live trip details with friends and family',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Share via SMS',
+              onPress: () => {
+                // In production: Share.share({ message: tripDetails });
+                Alert.alert('Trip Shared', 'Your trip details have been shared.');
+              },
+            },
+          ]
+        );
+      })
+      .catch(() => Alert.alert('Error', 'Failed to create trip share link'));
   };
 
   const handleCallDriver = () => {
@@ -270,9 +336,87 @@ Track my trip: https://app.example.com/track/${rideId}
     }
   }, [currentRide?.status]);
 
-  const getRouteCoordinates = () => {
+  useEffect(() => {
+    const calculateRoute = async () => {
+      if (!pickupLocation.coordinates || !dropLocation.coordinates) {
+        setRouteCoordinates([]);
+        return;
+      }
+
+      try {
+        const route = await galliMapsService.getRoute(
+          pickupLocation.coordinates.latitude,
+          pickupLocation.coordinates.longitude,
+          dropLocation.coordinates.latitude,
+          dropLocation.coordinates.longitude
+        );
+
+        if (route?.geometry?.coordinates?.length) {
+          const coords = route.geometry.coordinates.map(([lat, lng]) => ({
+            latitude: lat,
+            longitude: lng,
+          }));
+          setRouteCoordinates(coords);
+          return;
+        }
+      } catch (error) {
+        console.error('Route error:', error);
+      }
+
+      setRouteCoordinates(getSimpleRouteCoordinates());
+    };
+
+    calculateRoute();
+  }, [pickupLocation.coordinates, dropLocation.coordinates]);
+
+  useEffect(() => {
+    const shouldSimulate =
+      !isRider &&
+      currentRide?.status === 'START' &&
+      !riderLocation &&
+      routeCoordinates.length > 1;
+
+    if (!shouldSimulate) {
+      setSimulatedLocation(null);
+      simulationIndexRef.current = 0;
+      return;
+    }
+
+    simulationIndexRef.current = 0;
+    setSimulatedLocation(routeCoordinates[0]);
+
+    const interval = setInterval(() => {
+      simulationIndexRef.current += 1;
+      if (simulationIndexRef.current >= routeCoordinates.length) {
+        clearInterval(interval);
+        return;
+      }
+
+      const next = routeCoordinates[simulationIndexRef.current];
+      setSimulatedLocation(next);
+
+      if (Platform.OS === 'android') {
+        setMapCenter(next);
+      } else {
+        mapRef.current?.animateToRegion({
+          ...next,
+          latitudeDelta: 0.01,
+          longitudeDelta: 0.01,
+        });
+      }
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [currentRide?.status, isRider, riderLocation, routeCoordinates]);
+
+  const getSimpleRouteCoordinates = () => {
     if (!pickupLocation.coordinates || !dropLocation.coordinates) return [];
     return [pickupLocation.coordinates, dropLocation.coordinates];
+  };
+
+  const getRouteCoordinates = () => {
+    if (routeCoordinates.length > 1) return routeCoordinates;
+    return getSimpleRouteCoordinates();
   };
 
   const getRider = () => {
@@ -287,6 +431,11 @@ Track my trip: https://app.example.com/track/${rideId}
   const getDriverEmoji = () => {
     const vehicle = currentRide?.vehicle;
     if (vehicle === 'bike') return '🏍️';
+    if (vehicle === 'auto') return '🛺';
+    if (vehicle === 'pickupTruck') return '🛻';
+    if (vehicle === 'miniTruck') return '🚚';
+    if (vehicle === 'largeTruck') return '🚛';
+    if (vehicle === 'containerTruck') return '📦';
     return '🚗';
   };
 
@@ -323,8 +472,18 @@ Track my trip: https://app.example.com/track/${rideId}
       });
     }
 
+    if (simulatedLocation && !riderLocation) {
+      markers.push({
+        latitude: simulatedLocation.latitude,
+        longitude: simulatedLocation.longitude,
+        title: 'Driver (simulated)',
+        emoji: getDriverEmoji(),
+        emojiSize: 22,
+      });
+    }
+
     return markers;
-  }, [pickupLocation, dropLocation, riderLocation]);
+  }, [pickupLocation, dropLocation, riderLocation, simulatedLocation]);
 
   const osmPolyline: OSMPolyline | undefined = useMemo(() => {
     const coords = getRouteCoordinates();
@@ -334,7 +493,7 @@ Track my trip: https://app.example.com/track/${rideId}
       color: Colors.routeColor,
       weight: 4,
     };
-  }, [pickupLocation, dropLocation]);
+  }, [pickupLocation, dropLocation, routeCoordinates]);
 
   return (
     <View className="flex-1 bg-white">
@@ -342,7 +501,7 @@ Track my trip: https://app.example.com/track/${rideId}
 
       {Platform.OS === 'android' ? (
         <OSMMap
-          center={riderLocation || pickupLocation.coordinates || mapCenter}
+          center={riderLocation || simulatedLocation || pickupLocation.coordinates || mapCenter}
           markers={osmMarkers}
           polyline={osmPolyline}
           fitBounds
@@ -383,6 +542,14 @@ Track my trip: https://app.example.com/track/${rideId}
 
           {riderLocation && (
             <Marker coordinate={riderLocation} title="Driver">
+              <View className="w-12 h-12 bg-secondary rounded-full items-center justify-center shadow-lg">
+                <Text className="text-2xl">{getDriverEmoji()}</Text>
+              </View>
+            </Marker>
+          )}
+
+          {simulatedLocation && !riderLocation && (
+            <Marker coordinate={simulatedLocation} title="Driver (simulated)">
               <View className="w-12 h-12 bg-secondary rounded-full items-center justify-center shadow-lg">
                 <Text className="text-2xl">{getDriverEmoji()}</Text>
               </View>
@@ -440,37 +607,64 @@ Track my trip: https://app.example.com/track/${rideId}
       </TouchableOpacity>
 
       <View className="flex-1 bg-white rounded-t-3xl -mt-6 shadow-2xl">
-        <View className="w-12 h-1 bg-gray-300 rounded-full self-center mb-4" />
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 24 }}>
+          <View className="w-12 h-1 bg-gray-300 rounded-full self-center mb-4" />
 
-        <RideStatusCard
-          status={currentRide?.status || 'SEARCHING_FOR_RIDER'}
-          pickupAddress={currentRide?.pickup?.address || pickupLocation.address}
-          dropAddress={currentRide?.drop?.address || dropLocation.address}
-          fare={currentRide?.fare || 0}
-          distance={currentRide?.distance || 0}
-          onCancel={handleCancelRide}
-          canCancel={currentRide?.status === 'SEARCHING_FOR_RIDER' || currentRide?.status === 'START'}
-        />
+          <RideStatusCard
+            status={currentRide?.status || 'SEARCHING_FOR_RIDER'}
+            pickupAddress={currentRide?.pickup?.address || pickupLocation.address}
+            dropAddress={currentRide?.drop?.address || dropLocation.address}
+            fare={currentRide?.fare || 0}
+            distance={currentRide?.distance || 0}
+            onCancel={handleCancelRide}
+            canCancel={
+              !isRider &&
+              (currentRide?.status === 'SEARCHING_FOR_RIDER' || currentRide?.status === 'ACCEPTED')
+            }
+          />
 
-        {rider && currentRide?.status !== 'SEARCHING_FOR_RIDER' && (
-          <View className="mt-4">
-            <DriverCard
-              name={rider.phone || 'Driver'}
-              rating={4.8}
-              vehicleNumber="Ba 1 Ja 1234"
-              vehicleModel={currentRide?.vehicle || 'Car'}
-              otp={currentRide?.otp || undefined}
-              onCall={() => {}}
-              onMessage={() => {}}
-            />
-          </View>
-        )}
+          {rider && currentRide?.status !== 'SEARCHING_FOR_RIDER' && (
+            <View className="mt-4">
+              <DriverCard
+                name={rider.phone || 'Driver'}
+                rating={4.8}
+                vehicleNumber="Ba 1 Ja 1234"
+                vehicleModel={currentRide?.vehicle || 'Car'}
+                otp={currentRide?.otp || undefined}
+                onCall={() => {}}
+                onMessage={() => {}}
+              />
+            </View>
+          )}
 
-        {currentRide?.status === 'ARRIVED' && (
-          <View className="mt-4">
-            <Button title="Trip Complete" onPress={handleRideEnd} variant="primary" />
-          </View>
-        )}
+          {isRider && currentRide?.status === 'ACCEPTED' && (
+            <View className="mt-4">
+              <Button title="Mark Arrived" onPress={handleMarkArrived} variant="primary" />
+            </View>
+          )}
+
+          {isRider && currentRide?.status === 'ARRIVED' && (
+            <View className="mt-4 px-4">
+              <Text className="text-sm text-gray-500 mb-2">Enter OTP from passenger</Text>
+              <TextInput
+                value={otpInput}
+                onChangeText={setOtpInput}
+                keyboardType="numeric"
+                placeholder="OTP"
+                className="bg-gray-100 rounded-xl px-4 py-3 text-secondary"
+              />
+              <View className="mt-3">
+                <Button title="Verify OTP & Start" onPress={handleVerifyOtp} variant="primary" />
+              </View>
+            </View>
+          )}
+
+          {isRider && currentRide?.status === 'START' && (
+            <View className="mt-4">
+              <Button title="Complete Trip" onPress={handleDriverComplete} variant="primary" />
+            </View>
+          )}
+        </ScrollView>
       </View>
     </View>
   );

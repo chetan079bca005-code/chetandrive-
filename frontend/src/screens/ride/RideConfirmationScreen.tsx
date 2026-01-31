@@ -10,7 +10,7 @@ import {
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import {
@@ -21,7 +21,7 @@ import {
   CreditCard,
   ChevronRight,
 } from 'lucide-react-native';
-import { useLocationStore, useRideStore } from '../../store';
+import { useLocationStore, useRideStore, useAuthStore } from '../../store';
 import { rideService, galliMapsService } from '../../services';
 import { Button, VehicleCard, OSMMap, OSMMarker, OSMPolyline } from '../../components/ui';
 import { Colors } from '../../config/colors';
@@ -30,39 +30,147 @@ import { MAP_CONFIG } from '../../config/constants';
 
 const { width, height } = Dimensions.get('window');
 
-const vehicleOptions: VehicleOption[] = [
-  {
-    id: 'bike',
-    name: 'Moto',
-    description: 'No traffic, lower prices',
-    icon: '🏍️',
-    multiplier: 1,
-    seats: 1,
-    eta: '2 min',
-  },
-  {
-    id: 'cabEconomy',
-    name: 'Ride',
-    description: 'Affordable fares',
-    icon: '🚗',
-    multiplier: 2,
-    seats: 4,
-    eta: '2 min',
-  },
-  {
-    id: 'cabPremium',
-    name: 'Comfort',
-    description: 'Newer cars with AC',
-    icon: '🚙',
-    multiplier: 3,
-    seats: 4,
-    eta: '3 min',
-  },
-];
+type RouteParams = {
+  RideConfirmation: {
+    serviceType?: 'city' | 'intercity' | 'delivery' | 'freight';
+  };
+};
+
+const getVehicleOptions = (serviceType: 'city' | 'intercity' | 'delivery' | 'freight'): VehicleOption[] => {
+  if (serviceType === 'freight') {
+    return [
+      {
+        id: 'pickupTruck',
+        name: 'Pickup Truck',
+        description: 'Up to 500 kg',
+        icon: '🛻',
+        multiplier: 6,
+        seats: 2,
+        eta: '5-8 min',
+      },
+      {
+        id: 'miniTruck',
+        name: 'Mini Truck',
+        description: 'Up to 1 ton',
+        icon: '🚚',
+        multiplier: 9,
+        seats: 2,
+        eta: '6-10 min',
+      },
+      {
+        id: 'largeTruck',
+        name: 'Large Truck',
+        description: 'Up to 3 ton',
+        icon: '🚛',
+        multiplier: 12,
+        seats: 2,
+        eta: '8-12 min',
+      },
+      {
+        id: 'containerTruck',
+        name: 'Container',
+        description: '5+ ton',
+        icon: '📦',
+        multiplier: 16,
+        seats: 2,
+        eta: '10-15 min',
+      },
+    ];
+  }
+
+  if (serviceType === 'delivery') {
+    return [
+      {
+        id: 'bike',
+        name: 'Bike Courier',
+        description: 'Fast for small parcels',
+        icon: '🏍️',
+        multiplier: 1,
+        seats: 1,
+        eta: '3 min',
+      },
+      {
+        id: 'auto',
+        name: 'Auto Courier',
+        description: 'Medium parcels',
+        icon: '🛺',
+        multiplier: 2,
+        seats: 3,
+        eta: '4 min',
+      },
+      {
+        id: 'cabEconomy',
+        name: 'Car Courier',
+        description: 'Large parcels',
+        icon: '🚗',
+        multiplier: 3,
+        seats: 4,
+        eta: '5 min',
+      },
+    ];
+  }
+
+  if (serviceType === 'intercity') {
+    return [
+      {
+        id: 'cabEconomy',
+        name: 'Economy',
+        description: 'Best value intercity',
+        icon: '🚗',
+        multiplier: 2,
+        seats: 4,
+        eta: '10-15 min',
+      },
+      {
+        id: 'cabPremium',
+        name: 'Comfort',
+        description: 'Spacious & AC',
+        icon: '🚙',
+        multiplier: 3,
+        seats: 4,
+        eta: '10-15 min',
+      },
+    ];
+  }
+
+  return [
+    {
+      id: 'bike',
+      name: 'Moto',
+      description: 'No traffic, lower prices',
+      icon: '🏍️',
+      multiplier: 1,
+      seats: 1,
+      eta: '2 min',
+    },
+    {
+      id: 'cabEconomy',
+      name: 'Ride',
+      description: 'Affordable fares',
+      icon: '🚗',
+      multiplier: 2,
+      seats: 4,
+      eta: '2 min',
+    },
+    {
+      id: 'cabPremium',
+      name: 'Comfort',
+      description: 'Newer cars with AC',
+      icon: '🚙',
+      multiplier: 3,
+      seats: 4,
+      eta: '3 min',
+    },
+  ];
+};
 
 export const RideConfirmationScreen: React.FC = () => {
   const navigation = useNavigation<NativeStackNavigationProp<any>>();
+  const route = useRoute<RouteProp<RouteParams, 'RideConfirmation'>>();
   const mapRef = useRef<MapView>(null);
+
+  const serviceType = route.params?.serviceType || 'city';
+  const vehicleOptions = useMemo(() => getVehicleOptions(serviceType), [serviceType]);
 
   const { pickupLocation, dropLocation } = useLocationStore();
   const {
@@ -71,7 +179,9 @@ export const RideConfirmationScreen: React.FC = () => {
     fareEstimate,
     setFareEstimate,
     setCurrentRide,
+    serviceDetails,
   } = useRideStore();
+  const { logout } = useAuthStore();
 
   const [isLoading, setIsLoading] = useState(false);
   const [distance, setDistance] = useState(0);
@@ -80,11 +190,14 @@ export const RideConfirmationScreen: React.FC = () => {
   const [offerFare, setOfferFare] = useState(0);
 
   useEffect(() => {
+    if (!vehicleOptions.find((v) => v.id === selectedVehicle)) {
+      setSelectedVehicle(vehicleOptions[0].id);
+    }
     calculateRouteAndFare();
     if (Platform.OS !== 'android') {
       fitMapToRoute();
     }
-  }, [pickupLocation, dropLocation]);
+  }, [pickupLocation, dropLocation, serviceType, vehicleOptions, selectedVehicle]);
 
   const calculateRouteAndFare = async () => {
     if (pickupLocation.coordinates && dropLocation.coordinates) {
@@ -154,15 +267,6 @@ export const RideConfirmationScreen: React.FC = () => {
     setIsLoading(true);
 
     try {
-      // Navigate to Driver Offers screen to show incoming offers
-      navigation.navigate('DriverOffers', {
-        proposedFare: offerFare,
-        distance,
-        duration,
-        routeCoordinates,
-      });
-
-      // Also create ride request in background
       const response = await rideService.createRide({
         vehicle: selectedVehicle,
         pickup: {
@@ -175,12 +279,32 @@ export const RideConfirmationScreen: React.FC = () => {
           latitude: dropLocation.coordinates.latitude,
           longitude: dropLocation.coordinates.longitude,
         },
+        proposedFare: offerFare,
+        serviceType,
+        serviceDetails,
       });
 
       setCurrentRide(response.ride);
+
+      navigation.navigate('DriverOffers', {
+        rideId: response.ride._id,
+        proposedFare: offerFare,
+        distance,
+        duration,
+        routeCoordinates,
+      });
     } catch (error: any) {
-      // Don't show error here since we already navigated to offers screen
+      if (error?.response?.status === 401) {
+        logout();
+        Alert.alert('Session Expired', 'Please sign in again.');
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'Login' }],
+        });
+        return;
+      }
       console.error('Create ride error:', error);
+      Alert.alert('Error', error.message || 'Failed to create ride request');
     } finally {
       setIsLoading(false);
     }
@@ -354,14 +478,16 @@ export const RideConfirmationScreen: React.FC = () => {
           ))}
         </ScrollView>
 
-        <View className="px-4 pb-6 pt-4 border-t border-gray-100">
-          <Button
-            title={`Book ${vehicleOptions.find((v) => v.id === selectedVehicle)?.name} • NPR${offerFare || Math.round(fareEstimate?.[selectedVehicle] || 0)}`}
-            onPress={handleBookRide}
-            loading={isLoading}
-            disabled={isLoading}
-          />
-        </View>
+        <SafeAreaView edges={['bottom']} className="border-t border-gray-100">
+          <View className="px-4 pb-8 pt-4">
+            <Button
+              title={`Book ${vehicleOptions.find((v) => v.id === selectedVehicle)?.name} • NPR${offerFare || Math.round(fareEstimate?.[selectedVehicle] || 0)}`}
+              onPress={handleBookRide}
+              loading={isLoading}
+              disabled={isLoading}
+            />
+          </View>
+        </SafeAreaView>
       </View>
     </View>
   );

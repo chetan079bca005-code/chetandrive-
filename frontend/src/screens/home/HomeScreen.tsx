@@ -8,32 +8,32 @@ import {
   Platform,
   Alert,
   Switch,
-  Image,
+  Modal,
+  TextInput,
+  Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { DrawerActions, useNavigation } from '@react-navigation/native';
-import MapView, { Marker } from 'react-native-maps';
+import MapView, { Marker, Polyline } from 'react-native-maps';
 import * as Location from 'expo-location';
 import {
   Menu,
   MapPin,
   Navigation,
-  Search,
   ChevronRight,
-  Car,
   LocateFixed,
-  Bike,
 } from 'lucide-react-native';
 import { useLocationStore, useRideStore, useAuthStore, usePreferencesStore } from '../../store';
 import { socketManager, galliMapsService, rideService } from '../../services';
 import { Colors } from '../../config/colors';
 import { MAP_CONFIG } from '../../config/constants';
 import { OSMMap, OSMMarker } from '../../components/ui';
-import { Ride } from '../../types';
+import { Ride, RiderInfo, Coordinates } from '../../types';
 
 export const HomeScreen: React.FC = () => {
   const navigation = useNavigation<any>();
   const mapRef = useRef<MapView>(null);
+  const { height: screenHeight } = Dimensions.get('window');
 
   const {
     currentLocation,
@@ -43,7 +43,7 @@ export const HomeScreen: React.FC = () => {
     setPickupLocation,
   } = useLocationStore();
 
-  const { nearbyRiders, setNearbyRiders, setCurrentRide } = useRideStore();
+  const { nearbyRiders, setNearbyRiders, setCurrentRide, currentRide } = useRideStore();
   const { user } = useAuthStore();
   const { savedPlaces } = usePreferencesStore();
   const isRider = user?.role === 'rider';
@@ -53,15 +53,22 @@ export const HomeScreen: React.FC = () => {
   const [selectedService, setSelectedService] = useState('ride');
   const [selectedOffer, setSelectedOffer] = useState('ride');
   const [offerFare] = useState(268);
+  const [offerModalVisible, setOfferModalVisible] = useState(false);
+  const [offerAmount, setOfferAmount] = useState('');
+  const [selectedRideForOffer, setSelectedRideForOffer] = useState<Ride | null>(null);
+  const [driverListVisible, setDriverListVisible] = useState(false);
+  const [routeCoordinates, setRouteCoordinates] = useState<Coordinates[]>([]);
+  const [mapCenter, setMapCenter] = useState<Coordinates>({
+    latitude: MAP_CONFIG.DEFAULT_LATITUDE,
+    longitude: MAP_CONFIG.DEFAULT_LONGITUDE,
+  });
+  const [mapZoom, setMapZoom] = useState(14);
+  const [fitBounds, setFitBounds] = useState(true);
+  const [simulatedLocation, setSimulatedLocation] = useState<Coordinates | null>(null);
+  const simulationIndexRef = useRef(0);
   const locationWatchRef = useRef<Location.LocationSubscription | null>(null);
 
-  const serviceOptions = [
-    { id: 'moto', label: 'Moto', icon: '🏍️' },
-    { id: 'ride', label: 'Ride', icon: '🚗' },
-    { id: 'comfort', label: 'Comfort', icon: '🚙' },
-    { id: 'delivery', label: 'Delivery', icon: '📦' },
-    { id: 'city', label: 'City to city', icon: '🧳' },
-  ];
+  const serviceOptions: { id: string; label: string; icon: string }[] = [];
 
   const quickPlaces = [
     ...(savedPlaces.home ? [{ id: 'home', name: 'Home', subtitle: savedPlaces.home }] : []),
@@ -93,6 +100,111 @@ export const HomeScreen: React.FC = () => {
       socketManager.subscribeToZone(currentLocation);
     }
   }, [currentLocation, isRider]);
+
+  useEffect(() => {
+    if (currentLocation) {
+      setMapCenter({ ...currentLocation });
+    }
+  }, [currentLocation]);
+
+  useEffect(() => {
+    const calculateRoute = async () => {
+      if (!pickupLocation.coordinates || !dropLocation.coordinates) {
+        setRouteCoordinates([]);
+        return;
+      }
+
+      try {
+        const route = await galliMapsService.getRoute(
+          pickupLocation.coordinates.latitude,
+          pickupLocation.coordinates.longitude,
+          dropLocation.coordinates.latitude,
+          dropLocation.coordinates.longitude
+        );
+
+        if (route?.geometry?.coordinates?.length) {
+          const coords = route.geometry.coordinates.map(([lat, lng]) => ({
+            latitude: lat,
+            longitude: lng,
+          }));
+          setRouteCoordinates(coords);
+          setFitBounds(true);
+          return;
+        }
+      } catch (error) {
+        console.error('Route error:', error);
+      }
+
+      setRouteCoordinates(getSimpleRouteCoordinates());
+      setFitBounds(true);
+    };
+
+    calculateRoute();
+  }, [pickupLocation.coordinates, dropLocation.coordinates]);
+
+  useEffect(() => {
+    if (!pickupLocation.coordinates && !dropLocation.coordinates) return;
+
+    if (Platform.OS === 'android') {
+      const nextCenter = pickupLocation.coordinates || currentLocation || mapCenter;
+      setMapCenter({ ...nextCenter });
+      return;
+    }
+
+    const points = [pickupLocation.coordinates, dropLocation.coordinates].filter(Boolean) as Coordinates[];
+    if (points.length === 1) {
+      mapRef.current?.animateToRegion({
+        ...points[0],
+        latitudeDelta: MAP_CONFIG.LATITUDE_DELTA,
+        longitudeDelta: MAP_CONFIG.LONGITUDE_DELTA,
+      });
+    } else if (points.length > 1) {
+      mapRef.current?.fitToCoordinates(points, {
+        edgePadding: { top: 120, right: 50, bottom: 220, left: 50 },
+        animated: true,
+      });
+    }
+  }, [pickupLocation.coordinates, dropLocation.coordinates, currentLocation]);
+
+  useEffect(() => {
+    const shouldSimulate = !isRider && currentRide?.status === 'START' && routeCoordinates.length > 1;
+    if (!shouldSimulate) {
+      setSimulatedLocation(null);
+      simulationIndexRef.current = 0;
+      return;
+    }
+
+    simulationIndexRef.current = 0;
+    setSimulatedLocation(routeCoordinates[0]);
+
+    const interval = setInterval(() => {
+      simulationIndexRef.current += 1;
+      if (simulationIndexRef.current >= routeCoordinates.length) {
+        clearInterval(interval);
+        return;
+      }
+
+      const next = routeCoordinates[simulationIndexRef.current];
+      setSimulatedLocation(next);
+
+      if (Platform.OS === 'android') {
+        setMapCenter(next);
+      } else {
+        mapRef.current?.animateToRegion({
+          ...next,
+          latitudeDelta: 0.01,
+          longitudeDelta: 0.01,
+        });
+      }
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [currentRide?.status, isRider, routeCoordinates]);
+
+  const getSimpleRouteCoordinates = () => {
+    if (!pickupLocation.coordinates || !dropLocation.coordinates) return [];
+    return [pickupLocation.coordinates, dropLocation.coordinates];
+  };
 
   const requestLocationPermission = async () => {
     try {
@@ -159,13 +271,18 @@ export const HomeScreen: React.FC = () => {
   };
 
   const handleMyLocation = () => {
-    if (currentLocation && Platform.OS !== 'android') {
-      mapRef.current?.animateToRegion({
-        ...currentLocation,
-        latitudeDelta: MAP_CONFIG.LATITUDE_DELTA,
-        longitudeDelta: MAP_CONFIG.LONGITUDE_DELTA,
-      });
+    if (!currentLocation) return;
+    if (Platform.OS === 'android') {
+      setMapCenter({ ...currentLocation });
+      setMapZoom(16);
+      setFitBounds(false);
+      return;
     }
+    mapRef.current?.animateToRegion({
+      ...currentLocation,
+      latitudeDelta: MAP_CONFIG.LATITUDE_DELTA,
+      longitudeDelta: MAP_CONFIG.LONGITUDE_DELTA,
+    });
   };
 
   const handleToggleDuty = async (value: boolean) => {
@@ -201,10 +318,58 @@ export const HomeScreen: React.FC = () => {
       const response = await rideService.acceptRide(rideId);
       setCurrentRide(response.ride);
       setRideOffers((prev) => prev.filter((ride) => ride._id !== rideId));
-      navigation.navigate('RideTracking', { rideId: response.ride._id });
+      navigation.navigate('DriverRide', { rideId: response.ride._id });
     } catch (error: any) {
       Alert.alert('Error', error.response?.data?.message || 'Failed to accept ride');
     }
+  };
+
+  const openDriverProfile = (rider: RiderInfo) => {
+    if (!rider.profile) {
+      Alert.alert('Driver', 'Profile details not available yet.');
+      return;
+    }
+
+    const offer = {
+      _id: `nearby_${rider.riderId || rider.socketId}`,
+      rideRequestId: 'nearby',
+      driver: rider.profile,
+      offeredFare: 0,
+      originalFare: 0,
+      priceComparison: 'equal' as const,
+      eta: Math.max(2, Math.round((rider.distance / 1000) * 3)),
+      distance: Math.round((rider.distance / 1000) * 10) / 10,
+      expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+      status: 'pending' as const,
+      createdAt: new Date().toISOString(),
+    };
+
+    navigation.navigate('DriverProfile', { offer });
+  };
+
+  const handleOpenOffer = (ride: Ride) => {
+    setSelectedRideForOffer(ride);
+    setOfferAmount(Math.round(ride.fare || ride.proposedFare || 0).toString());
+    setOfferModalVisible(true);
+  };
+
+  const handleSendOffer = () => {
+    if (!selectedRideForOffer) return;
+    const amount = parseInt(offerAmount, 10);
+    if (Number.isNaN(amount) || amount <= 0) {
+      Alert.alert('Invalid Amount', 'Enter a valid offer amount');
+      return;
+    }
+
+    socketManager.makeOffer({
+      rideId: selectedRideForOffer._id,
+      offeredFare: amount,
+      eta: 5,
+      distanceToPickup: 1.5,
+    });
+
+    Alert.alert('Offer Sent', 'Your offer has been sent to the passenger.');
+    setOfferModalVisible(false);
   };
 
   const osmMarkers: OSMMarker[] = useMemo(() => {
@@ -231,17 +396,37 @@ export const HomeScreen: React.FC = () => {
     }
 
     nearbyRiders.forEach((rider, index) => {
+      const etaMin = Math.max(2, Math.round((rider.distance / 1000) * 3));
       markers.push({
         latitude: rider.coords.latitude,
         longitude: rider.coords.longitude,
-        title: 'Nearby driver',
+        title: `Driver • ETA ${etaMin}m`,
         emoji: index % 2 === 0 ? '🚗' : '🏍️',
         emojiSize: 20,
       });
     });
 
+    if (simulatedLocation) {
+      markers.push({
+        latitude: simulatedLocation.latitude,
+        longitude: simulatedLocation.longitude,
+        title: 'Ride in progress',
+        emoji: '🚕',
+        emojiSize: 22,
+      });
+    }
+
     return markers;
-  }, [pickupLocation, dropLocation, nearbyRiders]);
+  }, [pickupLocation, dropLocation, nearbyRiders, simulatedLocation]);
+
+  const osmPolyline = useMemo(() => {
+    if (routeCoordinates.length < 2) return undefined;
+    return {
+      coordinates: routeCoordinates,
+      color: Colors.routeColor,
+      weight: 4,
+    };
+  }, [routeCoordinates]);
 
   return (
     <View className="flex-1 bg-white">
@@ -249,12 +434,11 @@ export const HomeScreen: React.FC = () => {
 
       {Platform.OS === 'android' ? (
         <OSMMap
-          center={currentLocation || {
-            latitude: MAP_CONFIG.DEFAULT_LATITUDE,
-            longitude: MAP_CONFIG.DEFAULT_LONGITUDE,
-          }}
+          center={mapCenter}
+          zoom={mapZoom}
           markers={osmMarkers}
-          fitBounds
+          polyline={osmPolyline}
+          fitBounds={fitBounds}
           style={{ flex: 1 }}
         />
       ) : (
@@ -270,6 +454,14 @@ export const HomeScreen: React.FC = () => {
           showsUserLocation
           showsMyLocationButton={false}
         >
+          {routeCoordinates.length > 1 && (
+            <Polyline
+              coordinates={routeCoordinates}
+              strokeColor={Colors.routeColor}
+              strokeWidth={4}
+            />
+          )}
+
           {pickupLocation.coordinates && (
             <Marker coordinate={pickupLocation.coordinates} title="Pickup">
               <View className="items-center">
@@ -294,11 +486,31 @@ export const HomeScreen: React.FC = () => {
 
           {nearbyRiders.map((rider, index) => (
             <Marker key={index} coordinate={rider.coords} title={`Driver ${index + 1}`}>
-              <View className="w-10 h-10 bg-secondary rounded-full items-center justify-center shadow-lg">
-                <Text className="text-xl">{index % 2 === 0 ? '🚗' : '🏍️'}</Text>
+              <View className="items-center">
+                <View className="bg-white px-2 py-1 rounded-full shadow-lg mb-1">
+                  <Text className="text-[10px] text-secondary">
+                    ETA {Math.max(2, Math.round((rider.distance / 1000) * 3))}m
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  onPress={() => openDriverProfile(rider)}
+                  className="w-10 h-10 bg-secondary rounded-full items-center justify-center shadow-lg"
+                >
+                  <Text className="text-xl">{index % 2 === 0 ? '🚗' : '🏍️'}</Text>
+                </TouchableOpacity>
               </View>
             </Marker>
           ))}
+
+          {simulatedLocation && (
+            <Marker coordinate={simulatedLocation} title="Ride in progress">
+              <View className="items-center">
+                <View className="w-10 h-10 bg-blue-500 rounded-full items-center justify-center shadow-lg">
+                  <Text className="text-xl">🚕</Text>
+                </View>
+              </View>
+            </Marker>
+          )}
         </MapView>
       )}
 
@@ -315,59 +527,50 @@ export const HomeScreen: React.FC = () => {
         </View>
       </SafeAreaView>
 
+      {!isRider && (
+        <TouchableOpacity
+          onPress={handleMyLocation}
+          className="absolute right-4 top-24 w-12 h-12 bg-white rounded-full items-center justify-center shadow-lg"
+        >
+          <LocateFixed size={20} color={Colors.secondary} />
+        </TouchableOpacity>
+      )}
+
       <SafeAreaView className="absolute bottom-0 left-0 right-0">
         <View className="px-4 pb-4">
           <View className="bg-white rounded-3xl shadow-lg p-4">
-            {isRider ? (
-              <>
+            <ScrollView
+              style={{ maxHeight: screenHeight * 0.45 }}
+              showsVerticalScrollIndicator={false}
+            >
+              {isRider ? (
+                <>
                 <View className="flex-row items-center justify-between mb-3">
                   <View>
                     <Text className="text-lg font-semibold text-secondary">Driver Mode</Text>
                     <Text className="text-sm text-gray-500">Go online to receive ride requests</Text>
                   </View>
-                  <Switch
-                    value={onDuty}
-                    onValueChange={handleToggleDuty}
-                    trackColor={{ false: Colors.gray300, true: Colors.primary }}
-                    thumbColor={Colors.white}
-                  />
+                  <Switch value={onDuty} onValueChange={handleToggleDuty} />
                 </View>
 
-                <View>
-                  <Text className="text-sm font-medium text-gray-500 mb-2">Offers</Text>
-                  {['moto', 'ride', 'comfort'].map((option) => {
-                    const label = option === 'moto' ? 'Moto' : option === 'ride' ? 'Ride' : 'Comfort';
-                    const icon = option === 'moto' ? '🏍️' : option === 'ride' ? '🚗' : '🚙';
-                    return (
-                      <TouchableOpacity
-                        key={option}
-                        className={`flex-row items-center bg-gray-50 rounded-2xl p-3 mb-3 ${
-                          selectedOffer === option ? 'border border-primary' : 'border border-transparent'
-                        }`}
-                        onPress={() => setSelectedOffer(option)}
-                        activeOpacity={0.8}
-                      >
-                        <View className="w-12 h-12 bg-white rounded-xl items-center justify-center mr-3">
-                          <Text className="text-2xl">{icon}</Text>
-                        </View>
-                        <View className="flex-1">
-                          <Text className="text-base font-semibold text-secondary">{label}</Text>
-                          <Text className="text-sm text-gray-500">Affordable fares</Text>
-                        </View>
-                        <Text className="text-base font-semibold text-secondary">~NPR{offerFare}</Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-
-                  {rideOffers.length > 0 && (
-                    <View className="mt-2">
-                      {rideOffers.map((ride) => (
-                        <View key={ride._id} className="bg-gray-50 rounded-xl p-3 mb-2">
-                          <Text className="text-sm text-secondary" numberOfLines={1}>
-                            {ride.pickup.address} → {ride.drop.address}
-                          </Text>
-                          <View className="flex-row items-center justify-between mt-2">
-                            <Text className="text-sm font-semibold text-secondary">NPR {Math.round(ride.fare)}</Text>
+                {rideOffers.length === 0 ? (
+                  <Text className="text-sm text-gray-500">No requests yet.</Text>
+                ) : (
+                  <View className="mt-2">
+                    {rideOffers.map((ride) => (
+                      <View key={ride._id} className="bg-gray-50 rounded-xl p-3 mb-2">
+                        <Text className="text-sm text-secondary" numberOfLines={1}>
+                          {ride.pickup.address} → {ride.drop.address}
+                        </Text>
+                        <View className="flex-row items-center justify-between mt-2">
+                          <Text className="text-sm font-semibold text-secondary">NPR {Math.round(ride.fare)}</Text>
+                          <View className="flex-row">
+                            <TouchableOpacity
+                              className="bg-gray-200 px-3 py-2 rounded-lg mr-2"
+                              onPress={() => handleOpenOffer(ride)}
+                            >
+                              <Text className="text-sm font-medium text-secondary">Offer</Text>
+                            </TouchableOpacity>
                             <TouchableOpacity
                               className="bg-primary px-3 py-2 rounded-lg"
                               onPress={() => handleAcceptRide(ride._id)}
@@ -376,47 +579,58 @@ export const HomeScreen: React.FC = () => {
                             </TouchableOpacity>
                           </View>
                         </View>
-                      ))}
-                    </View>
-                  )}
-                </View>
-              </>
-            ) : (
-              <>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  className="-mx-2 mb-3"
-                  contentContainerStyle={{ paddingHorizontal: 8 }}
+                      </View>
+                    ))}
+                  </View>
+                )}
+                </>
+              ) : (
+                <>
+                <TouchableOpacity
+                  onPress={() => navigation.navigate('LocationSearch', { type: 'pickup' })}
+                  className="flex-row items-center bg-gray-100 rounded-2xl p-4 mb-3"
+                  activeOpacity={0.7}
                 >
-                  {serviceOptions.map((option) => (
-                    <TouchableOpacity
-                      key={option.id}
-                      onPress={() => setSelectedService(option.id)}
-                      className={`items-center mr-3 px-4 py-3 rounded-2xl ${
-                        selectedService === option.id ? 'bg-primary/20' : 'bg-gray-50'
-                      }`}
-                      activeOpacity={0.8}
-                    >
-                      <Text className="text-2xl mb-1">{option.icon}</Text>
-                      <Text className="text-sm font-medium text-secondary">{option.label}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-
+                  <View className="flex-1">
+                    <Text className="text-xs text-gray-500 mb-1">Pickup</Text>
+                    <Text className="text-base text-secondary" numberOfLines={1}>
+                      {pickupLocation.address || 'Set pickup location'}
+                    </Text>
+                  </View>
+                  <ChevronRight size={24} color={Colors.gray400} />
+                </TouchableOpacity>
                 <TouchableOpacity
                   onPress={handleWhereToPress}
                   className="flex-row items-center bg-gray-100 rounded-2xl p-4 mb-3"
                   activeOpacity={0.7}
                 >
-                  <View className="w-10 h-10 bg-primary rounded-full items-center justify-center mr-3">
-                    <Search size={20} color={Colors.secondary} />
-                  </View>
                   <View className="flex-1">
                     <Text className="text-lg text-gray-500">Where to?</Text>
                   </View>
                   <ChevronRight size={24} color={Colors.gray400} />
                 </TouchableOpacity>
+
+                {nearbyRiders.length > 0 && (
+                  <View className="bg-white rounded-2xl p-4 mb-3">
+                    <Text className="text-sm font-semibold text-secondary mb-2">Nearby Drivers</Text>
+                    {nearbyRiders.slice(0, 5).map((rider, index) => {
+                      const distanceKm = Math.max(0.1, Math.round((rider.distance / 1000) * 10) / 10);
+                      const etaMin = Math.max(2, Math.round(distanceKm * 3));
+                      return (
+                        <View key={index} className="flex-row items-center justify-between py-2 border-b border-gray-100">
+                          <View className="flex-row items-center">
+                            <Text className="text-xl mr-2">{index % 2 === 0 ? '🚗' : '🏍️'}</Text>
+                            <View>
+                              <Text className="text-sm text-secondary">Driver {index + 1}</Text>
+                              <Text className="text-xs text-gray-500">{distanceKm} km away</Text>
+                            </View>
+                          </View>
+                          <Text className="text-xs text-gray-500">ETA {etaMin} min</Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+                )}
 
                 {quickPlaces.length > 0 && (
                   <View className="bg-white rounded-2xl p-2">
@@ -439,34 +653,108 @@ export const HomeScreen: React.FC = () => {
                   </View>
                 )}
 
-                <View className="flex-row items-center justify-between mt-3">
-                  <TouchableOpacity onPress={handleWhereToPress} className="items-center flex-1">
-                    <View className="w-10 h-10 rounded-full bg-gray-100 items-center justify-center">
-                      <Search size={20} color={Colors.secondary} />
-                    </View>
-                    <Text className="text-xs text-gray-500 mt-1">Search</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={handleMyLocation} className="items-center flex-1">
-                    <View className="w-10 h-10 rounded-full bg-primary/20 items-center justify-center">
-                      <LocateFixed size={20} color={Colors.primary} />
-                    </View>
-                    <Text className="text-xs text-gray-500 mt-1">Location</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity 
-                    onPress={() => navigation.navigate('LocationSearch', { type: 'drop' })}
-                    className="items-center flex-1"
+                <View className="flex-row items-center gap-3 mt-4">
+                  <TouchableOpacity
+                    onPress={() => setDriverListVisible(true)}
+                    className="flex-1 bg-gray-100 py-3 rounded-xl items-center"
                   >
-                    <View className="w-10 h-10 rounded-full bg-gray-100 items-center justify-center">
-                      <Car size={20} color={Colors.secondary} />
-                    </View>
-                    <Text className="text-xs text-gray-500 mt-1">Vehicles</Text>
+                    <Text className="text-sm font-semibold text-secondary">Nearby Drivers</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={handleWhereToPress}
+                    className="flex-1 bg-primary py-3 rounded-xl items-center"
+                  >
+                    <Text className="text-sm font-semibold text-secondary">Request Ride</Text>
                   </TouchableOpacity>
                 </View>
-              </>
-            )}
+                </>
+              )}
+            </ScrollView>
           </View>
         </View>
       </SafeAreaView>
+
+      <Modal
+        visible={driverListVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setDriverListVisible(false)}
+      >
+        <View className="flex-1 bg-black/40 justify-end">
+          <View className="bg-white rounded-t-2xl p-4 max-h-[60%]">
+            <View className="flex-row items-center justify-between mb-3">
+              <Text className="text-base font-semibold text-secondary">Nearby Drivers</Text>
+              <TouchableOpacity onPress={() => setDriverListVisible(false)}>
+                <Text className="text-sm text-gray-500">Close</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView>
+              {nearbyRiders.length === 0 && (
+                <Text className="text-sm text-gray-500">No drivers nearby.</Text>
+              )}
+              {nearbyRiders.map((rider, index) => {
+                const distanceKm = Math.max(0.1, Math.round((rider.distance / 1000) * 10) / 10);
+                const etaMin = Math.max(2, Math.round(distanceKm * 3));
+                return (
+                  <TouchableOpacity
+                    key={index}
+                    className="flex-row items-center justify-between py-3 border-b border-gray-100"
+                    onPress={() => openDriverProfile(rider)}
+                  >
+                    <View className="flex-row items-center">
+                      <Text className="text-xl mr-2">{index % 2 === 0 ? '🚗' : '🏍️'}</Text>
+                      <View>
+                        <Text className="text-sm text-secondary">
+                          {rider.profile?.name || `Driver ${index + 1}`}
+                        </Text>
+                        <Text className="text-xs text-gray-500">{distanceKm} km away</Text>
+                      </View>
+                    </View>
+                    <Text className="text-xs text-gray-500">ETA {etaMin} min</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={offerModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setOfferModalVisible(false)}
+      >
+        <View className="flex-1 bg-black/40 items-center justify-center">
+          <View className="bg-white rounded-2xl p-4 w-[85%]">
+            <Text className="text-base font-semibold text-secondary">Send Offer</Text>
+            <Text className="text-xs text-gray-500 mt-1">
+              Propose your fare to the passenger
+            </Text>
+            <TextInput
+              value={offerAmount}
+              onChangeText={setOfferAmount}
+              keyboardType="numeric"
+              placeholder="Enter offer amount"
+              className="mt-3 border border-gray-200 rounded-xl px-3 py-2 text-secondary"
+            />
+            <View className="flex-row justify-end mt-4">
+              <TouchableOpacity
+                onPress={() => setOfferModalVisible(false)}
+                className="px-4 py-2 mr-2"
+              >
+                <Text className="text-sm text-gray-500">Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={handleSendOffer}
+                className="bg-primary px-4 py-2 rounded-lg"
+              >
+                <Text className="text-sm font-semibold text-secondary">Send</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };

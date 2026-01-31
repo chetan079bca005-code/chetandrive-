@@ -5,6 +5,7 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { ArrowLeft, Truck, MapPin, Package, Scale, Clock, Phone, ChevronRight } from 'lucide-react-native';
 import { Colors } from '../../config/colors';
+import { useLocationStore, useRideStore } from '../../store';
 
 const vehicleTypes = [
   { id: 'pickup', name: 'Pickup Truck', capacity: '500 kg', icon: '🛻', price: 'NPR 1500+' },
@@ -15,9 +16,9 @@ const vehicleTypes = [
 
 export const FreightScreen: React.FC = () => {
   const navigation = useNavigation<NativeStackNavigationProp<any>>();
-  const [selectedVehicle, setSelectedVehicle] = useState<string | null>(null);
-  const [pickupAddress, setPickupAddress] = useState('');
-  const [dropAddress, setDropAddress] = useState('');
+  const { pickupLocation, dropLocation } = useLocationStore();
+  const { setSelectedVehicle, setServiceDetails } = useRideStore();
+  const [selectedVehicle, setSelectedVehicleOption] = useState<string | null>(null);
   const [goodsDescription, setGoodsDescription] = useState('');
   const [weight, setWeight] = useState('');
 
@@ -26,16 +27,29 @@ export const FreightScreen: React.FC = () => {
       Alert.alert('Error', 'Please select a vehicle type');
       return;
     }
-    if (!pickupAddress || !dropAddress) {
-      Alert.alert('Error', 'Please enter pickup and delivery addresses');
+    if (!pickupLocation.coordinates || !dropLocation.coordinates) {
+      Alert.alert('Error', 'Please select pickup and delivery locations');
       return;
     }
 
-    Alert.alert(
-      'Quote Requested!',
-      'Our team will contact you shortly with a detailed quote for your freight requirement.',
-      [{ text: 'OK', onPress: () => navigation.goBack() }]
-    );
+    setServiceDetails({
+      freight: {
+        vehicleCategory: selectedVehicle || '',
+        goodsDescription: goodsDescription || '',
+        weight: weight || '',
+        services: [],
+      },
+    });
+
+    navigation.navigate('RideConfirmation', { serviceType: 'freight' });
+  };
+
+  const handleSelectVehicle = (vehicleId: string) => {
+    setSelectedVehicleOption(vehicleId);
+    if (vehicleId === 'pickup') setSelectedVehicle('pickupTruck');
+    if (vehicleId === 'mini') setSelectedVehicle('miniTruck');
+    if (vehicleId === 'large') setSelectedVehicle('largeTruck');
+    if (vehicleId === 'container') setSelectedVehicle('containerTruck');
   };
 
   return (
@@ -63,7 +77,7 @@ export const FreightScreen: React.FC = () => {
           {vehicleTypes.map((vehicle) => (
             <TouchableOpacity
               key={vehicle.id}
-              onPress={() => setSelectedVehicle(vehicle.id)}
+              onPress={() => handleSelectVehicle(vehicle.id)}
               className={`flex-row items-center p-4 rounded-xl mb-2 ${
                 selectedVehicle === vehicle.id 
                   ? 'bg-primary/10 border-2 border-primary' 
@@ -91,37 +105,37 @@ export const FreightScreen: React.FC = () => {
         <View className="px-4 py-4 bg-gray-50">
           <Text className="text-base font-semibold text-secondary mb-3">Locations</Text>
           
-          <View className="bg-white rounded-xl p-4 mb-3">
+          <TouchableOpacity
+            onPress={() => navigation.navigate('LocationSearch', { type: 'pickup', serviceType: 'freight' })}
+            className="bg-white rounded-xl p-4 mb-3"
+            activeOpacity={0.7}
+          >
             <View className="flex-row items-center mb-2">
               <View className="w-8 h-8 rounded-full bg-green-100 items-center justify-center">
                 <MapPin size={16} color={Colors.success} />
               </View>
               <Text className="text-sm font-medium text-gray-500 ml-2">Pickup Location</Text>
             </View>
-            <TextInput
-              value={pickupAddress}
-              onChangeText={setPickupAddress}
-              placeholder="Enter pickup address"
-              className="text-base text-secondary"
-              placeholderTextColor={Colors.gray400}
-            />
-          </View>
+            <Text className="text-base text-secondary">
+              {pickupLocation.address || 'Select pickup location'}
+            </Text>
+          </TouchableOpacity>
 
-          <View className="bg-white rounded-xl p-4">
+          <TouchableOpacity
+            onPress={() => navigation.navigate('LocationSearch', { type: 'drop', serviceType: 'freight' })}
+            className="bg-white rounded-xl p-4"
+            activeOpacity={0.7}
+          >
             <View className="flex-row items-center mb-2">
               <View className="w-8 h-8 rounded-full bg-red-100 items-center justify-center">
                 <MapPin size={16} color={Colors.danger} />
               </View>
               <Text className="text-sm font-medium text-gray-500 ml-2">Delivery Location</Text>
             </View>
-            <TextInput
-              value={dropAddress}
-              onChangeText={setDropAddress}
-              placeholder="Enter delivery address"
-              className="text-base text-secondary"
-              placeholderTextColor={Colors.gray400}
-            />
-          </View>
+            <Text className="text-base text-secondary">
+              {dropLocation.address || 'Select delivery location'}
+            </Text>
+          </TouchableOpacity>
         </View>
 
         {/* Goods Details */}

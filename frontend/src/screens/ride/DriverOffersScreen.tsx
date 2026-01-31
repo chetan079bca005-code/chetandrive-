@@ -26,6 +26,7 @@ import {
 } from 'lucide-react-native';
 import { useLocationStore, useRideStore, useOfferStore } from '../../store';
 import { socketManager, rideService } from '../../services';
+import { triggerAlertFeedback } from '../../utils/alertUtils';
 import { DriverOfferCard, OSMMap, OSMMarker, OSMPolyline } from '../../components/ui';
 import { Colors } from '../../config/colors';
 import { MAP_CONFIG } from '../../config/constants';
@@ -33,6 +34,7 @@ import { DriverOffer, DriverProfile, VehicleDetails } from '../../types';
 
 type RouteParams = {
   DriverOffers: {
+    rideId: string;
     proposedFare: number;
     distance: number;
     duration: number;
@@ -43,13 +45,14 @@ type RouteParams = {
 export const DriverOffersScreen: React.FC = () => {
   const navigation = useNavigation<NativeStackNavigationProp<any>>();
   const route = useRoute<RouteProp<RouteParams, 'DriverOffers'>>();
-  const { proposedFare, distance, duration, routeCoordinates = [] } = route.params;
+  const { rideId, proposedFare, distance, duration, routeCoordinates = [] } = route.params;
 
   const { pickupLocation, dropLocation } = useLocationStore();
   const { setCurrentRide } = useRideStore();
   const {
     driverOffers,
     addOffer,
+    updateOffer,
     setSelectedOffer,
     acceptOffer,
     counterOffer,
@@ -69,7 +72,6 @@ export const DriverOffersScreen: React.FC = () => {
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Simulate driver offers for demo (in production, these come from socket)
   useEffect(() => {
     setSearching(true);
     setSearchTimer(300); // 5 minutes
@@ -90,74 +92,111 @@ export const DriverOffersScreen: React.FC = () => {
         clearInterval(timerRef.current!);
         setSearching(false);
         setSearchTimer(0);
+        rideService.cancelRide(rideId).catch(() => undefined);
+        Alert.alert('No drivers found', 'We could not find a driver in time. Please try again.');
+        navigation.reset({ index: 0, routes: [{ name: 'MainDrawer' }] });
       } else {
         setSearchTimer(currentTimer - 1);
       }
     }, 1000);
 
-    // Simulate incoming driver offers
-    const offerTimeouts = [3000, 6000, 10000, 15000].map((delay, index) => {
-      return setTimeout(() => {
-        const mockOffer = generateMockOffer(index, proposedFare);
-        addOffer(mockOffer);
-      }, delay);
+    // Subscribe to ride room and offers
+    socketManager.subscribeToRide(rideId);
+    socketManager.searchRider(rideId);
+
+    const unsubscribeOfferUpdate = socketManager.onOfferUpdate((offers) => {
+      offers.forEach((offer) => {
+        const mapped = mapOffer(offer, proposedFare);
+        const exists = useOfferStore.getState().driverOffers.find(o => o._id === mapped._id);
+        if (exists) {
+          updateOffer(mapped._id, mapped);
+        } else {
+          addOffer(mapped);
+          triggerAlertFeedback('offer');
+        }
+      });
     });
 
-    // Subscribe to real socket offers
-    const unsubscribeOffer = socketManager.onRideOffer((ride) => {
-      // Convert ride to DriverOffer format
-      // This would be updated based on actual backend response
+    const unsubscribeRideUpdate = socketManager.onRideUpdate((ride) => {
+      if (ride.status !== 'SEARCHING_FOR_RIDER' && ride.rider) {
+        setCurrentRide(ride);
+        setSearching(false);
+        navigation.replace('RideTracking', { rideId: ride._id });
+      }
     });
+
+    const unsubscribeRideAccepted = socketManager.onRideAccepted(() => {
+      setSearching(false);
+    });
+
+    const fetchOffers = async () => {
+      try {
+        const response = await rideService.getRideOffers(rideId);
+        response.offers.forEach((offer) => {
+          const mapped = mapOffer(offer as any, proposedFare);
+          const exists = useOfferStore.getState().driverOffers.find(o => o._id === mapped._id);
+          if (exists) {
+            updateOffer(mapped._id, mapped);
+          } else {
+            addOffer(mapped);
+          }
+        });
+      } catch (error) {
+        console.log('Failed to fetch offers');
+      }
+    };
+    fetchOffers();
 
     return () => {
       pulse.stop();
       if (timerRef.current) clearInterval(timerRef.current);
-      offerTimeouts.forEach(clearTimeout);
-      unsubscribeOffer();
+      unsubscribeOfferUpdate();
+      unsubscribeRideUpdate();
+      unsubscribeRideAccepted();
       clearOffers();
     };
   }, []);
 
-  const generateMockOffer = (index: number, basePrice: number): DriverOffer => {
-    const priceVariations = [-30, 0, 20, -10];
-    const offeredFare = basePrice + priceVariations[index % 4];
-    
-    const mockDrivers: DriverProfile[] = [
-      {
-        _id: `driver_${index}`,
-        name: ['Ram Sharma', 'Sita Thapa', 'Bikash KC', 'Anita Gurung'][index % 4],
-        phone: '+977-98XXXXXXXX',
-        photo: undefined,
-        rating: [4.8, 4.9, 4.6, 4.7][index % 4],
-        totalRides: [1245, 2340, 567, 890][index % 4],
-        acceptanceRate: [95, 92, 88, 91][index % 4],
-        cancellationRate: [2, 3, 5, 4][index % 4],
-        memberSince: '2022',
-        verificationBadges: ['ID Verified', 'Background Check'],
-        vehicle: {
-          type: ['bike', 'cabEconomy', 'cabPremium', 'auto'][index % 4] as any,
-          make: ['Honda', 'Toyota', 'Maruti', 'Bajaj'][index % 4],
-          model: ['Activa', 'Corolla', 'Swift', 'Pulsar'][index % 4],
-          color: ['Black', 'White', 'Silver', 'Blue'][index % 4],
-          licensePlate: `BA ${index + 1} PA ${1234 + index}`,
-          year: 2020 + (index % 3),
-          capacity: [1, 4, 4, 3][index % 4],
-        },
+  const mapOffer = (offer: any, baseFare: number): DriverOffer => {
+    const offeredFare = Number(offer.offeredFare);
+    const priceComparison = offeredFare < baseFare ? 'below' : offeredFare === baseFare ? 'equal' : 'above';
+
+    const driverProfile = offer.driver || {};
+    const normalizedDriver = {
+      _id: driverProfile._id || driverProfile.id || 'driver',
+      name: driverProfile.name || driverProfile.phone || 'Driver',
+      phone: driverProfile.phone || '',
+      photo: driverProfile.photo,
+      rating: driverProfile.rating ?? 4.8,
+      totalRides: driverProfile.totalRides ?? 0,
+      acceptanceRate: driverProfile.acceptanceRate ?? 95,
+      cancellationRate: driverProfile.cancellationRate ?? 3,
+      memberSince: driverProfile.memberSince ?? '2023',
+      verificationBadges: driverProfile.verificationBadges ?? ['ID Verified'],
+      vehicle: driverProfile.vehicle || {
+        type: 'cabEconomy',
+        make: '',
+        model: '',
+        color: '',
+        licensePlate: '',
+        year: 2023,
+        capacity: 4,
       },
-    ];
+    };
 
     return {
-      _id: `offer_${Date.now()}_${index}`,
-      rideRequestId: 'ride_123',
-      driver: mockDrivers[0],
+      _id: offer._id,
+      rideRequestId: rideId,
+      driver: normalizedDriver,
       offeredFare,
-      originalFare: basePrice,
-      priceComparison: offeredFare < basePrice ? 'below' : offeredFare === basePrice ? 'equal' : 'above',
-      eta: [3, 5, 8, 4][index % 4],
-      distance: [1.2, 2.5, 3.1, 1.8][index % 4],
-      expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
-      status: 'pending',
-      createdAt: new Date().toISOString(),
+      originalFare: baseFare,
+      priceComparison,
+      eta: Number(offer.eta) || 0,
+      distance: Number(offer.distanceToPickup) || 0,
+      expiresAt: offer.expiresAt,
+      status: offer.status || 'pending',
+      counterOffers: offer.counterOffers || [],
+      createdAt: offer.createdAt || new Date().toISOString(),
     };
   };
 
@@ -181,41 +220,11 @@ export const DriverOffersScreen: React.FC = () => {
             text: 'Accept',
             onPress: async () => {
               try {
+                const response = await rideService.acceptOffer(rideId, offerId);
                 acceptOffer(offerId);
-                
-                // Create mock ride data for the tracking screen
-                const mockRide = {
-                  _id: `ride_${Date.now()}`,
-                  customer: 'current_user',
-                  rider: {
-                    _id: offer.driver._id,
-                    phone: offer.driver.phone,
-                  },
-                  vehicle: offer.driver.vehicle?.type || 'cabEconomy',
-                  pickup: {
-                    address: pickupLocation.address,
-                    latitude: pickupLocation.coordinates?.latitude || 0,
-                    longitude: pickupLocation.coordinates?.longitude || 0,
-                  },
-                  drop: {
-                    address: dropLocation.address,
-                    latitude: dropLocation.coordinates?.latitude || 0,
-                    longitude: dropLocation.coordinates?.longitude || 0,
-                  },
-                  fare: offer.offeredFare,
-                  distance: distance,
-                  status: 'START' as const,
-                  otp: Math.floor(1000 + Math.random() * 9000).toString(),
-                  createdAt: new Date().toISOString(),
-                  updatedAt: new Date().toISOString(),
-                };
-                
-                // Set the current ride in store
-                setCurrentRide(mockRide as any);
-                
-                // Navigate to tracking
+                setCurrentRide(response.ride);
                 setTimeout(() => {
-                  navigation.replace('RideTracking', { rideId: mockRide._id });
+                  navigation.replace('RideTracking', { rideId: response.ride._id });
                 }, 300);
               } catch (err: any) {
                 Alert.alert('Error', err.message || 'Failed to accept offer');
@@ -248,6 +257,8 @@ export const DriverOffersScreen: React.FC = () => {
     }
 
     counterOffer(selectedOfferId, amount, counterMessage || undefined);
+    rideService.counterOffer(rideId, selectedOfferId, { amount, message: counterMessage || undefined })
+      .catch(() => Alert.alert('Error', 'Failed to send counter offer'));
     setCounterModalVisible(false);
     setCounterAmount('');
     setCounterMessage('');

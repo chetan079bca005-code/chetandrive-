@@ -9,6 +9,24 @@ interface RideState {
   fareEstimate: FareEstimate | null;
   isSearchingRider: boolean;
   rideHistory: Ride[];
+  serviceDetails: {
+    delivery?: {
+      packageType?: string;
+      description?: string;
+    };
+    freight?: {
+      vehicleCategory?: string;
+      goodsDescription?: string;
+      weight?: string;
+      services?: string[];
+    };
+    intercity?: {
+      fromCity?: string;
+      toCity?: string;
+      date?: string;
+      passengers?: number;
+    };
+  };
   
   // Actions
   setCurrentRide: (ride: Ride | null) => void;
@@ -19,6 +37,8 @@ interface RideState {
   setSearchingRider: (searching: boolean) => void;
   updateRideStatus: (status: Ride['status']) => void;
   setRideHistory: (rides: Ride[]) => void;
+  setServiceDetails: (details: RideState['serviceDetails']) => void;
+  clearServiceDetails: () => void;
   clearRide: () => void;
 }
 
@@ -30,6 +50,7 @@ export const useRideStore = create<RideState>((set, get) => ({
   fareEstimate: null,
   isSearchingRider: false,
   rideHistory: [],
+  serviceDetails: {},
   
   setCurrentRide: (currentRide) => set({ currentRide }),
   
@@ -51,6 +72,10 @@ export const useRideStore = create<RideState>((set, get) => ({
   },
   
   setRideHistory: (rideHistory) => set({ rideHistory }),
+
+  setServiceDetails: (serviceDetails) => set({ serviceDetails }),
+
+  clearServiceDetails: () => set({ serviceDetails: {} }),
   
   clearRide: () => set({
     currentRide: null,

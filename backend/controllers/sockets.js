@@ -15,7 +15,22 @@ const handleSocketConnection = (io) => {
       const user = await User.findById(payload.id);
       if (!user) return next(new Error("Authentication invalid: User not found"));
 
-      socket.user = { id: payload.id, role: user.role };
+      socket.user = {
+        id: payload.id,
+        role: user.role,
+        profile: {
+          _id: user._id,
+          name: user.name || user.phone,
+          phone: user.phone,
+          rating: user.rating || 4.8,
+          totalRides: user.totalRides || 0,
+          acceptanceRate: user.acceptanceRate || 95,
+          cancellationRate: user.cancellationRate || 3,
+          memberSince: user.memberSince || "2023",
+          verificationBadges: user.verificationBadges || ["ID Verified"],
+          vehicle: user.vehicle || { type: "cabEconomy" },
+        },
+      };
       next();
     } catch (error) {
       console.error("Socket Auth Error:", error);
@@ -29,7 +44,12 @@ const handleSocketConnection = (io) => {
 
     if (user.role === "rider") {
       socket.on("goOnDuty", (coords) => {
-        onDutyRiders.set(user.id, { socketId: socket.id, coords });
+        onDutyRiders.set(user.id, {
+          socketId: socket.id,
+          coords,
+          riderId: user.id,
+          profile: socket.user.profile,
+        });
         socket.join("onDuty");
         console.log(`rider ${user.id} is now on duty.`);
         updateNearbyriders();
@@ -51,6 +71,31 @@ const handleSocketConnection = (io) => {
             riderId: user.id,
             coords,
           });
+        }
+      });
+
+      socket.on("makeOffer", async ({ rideId, offeredFare, eta = 0, distanceToPickup = 0 }) => {
+        try {
+          const ride = await Ride.findById(rideId);
+          if (!ride) return socket.emit("error", { message: "Ride not found" });
+
+          if (ride.status !== "SEARCHING_FOR_RIDER") {
+            return socket.emit("error", { message: "Ride is not accepting offers" });
+          }
+
+          ride.offers.push({
+            driver: user.id,
+            offeredFare: Math.round(Number(offeredFare)),
+            eta: Number(eta) || 0,
+            distanceToPickup: Number(distanceToPickup) || 0,
+            status: "pending",
+          });
+
+          await ride.save();
+          io.to(`ride_${rideId}`).emit("offerUpdate", ride.offers);
+        } catch (error) {
+          console.error("Error making offer:", error);
+          socket.emit("error", { message: "Failed to make offer" });
         }
       });
     }
@@ -111,6 +156,29 @@ const handleSocketConnection = (io) => {
           socket.emit("error", { message: "Error searching for rider" });
         }
       });
+
+      socket.on("counterOffer", async ({ rideId, offerId, amount, message = "" }) => {
+        try {
+          const ride = await Ride.findById(rideId);
+          if (!ride) return socket.emit("error", { message: "Ride not found" });
+
+          const offer = ride.offers.id(offerId);
+          if (!offer) return socket.emit("error", { message: "Offer not found" });
+
+          offer.counterOffers.push({
+            from: "passenger",
+            amount: Math.round(Number(amount)),
+            message,
+          });
+          offer.status = "countered";
+          await ride.save();
+
+          io.to(`ride_${rideId}`).emit("offerUpdate", ride.offers);
+        } catch (error) {
+          console.error("Error countering offer:", error);
+          socket.emit("error", { message: "Failed to counter offer" });
+        }
+      });
     }
 
     socket.on("subscribeToriderLocation", (riderId) => {
@@ -125,7 +193,9 @@ const handleSocketConnection = (io) => {
     socket.on("subscribeRide", async (rideId) => {
       socket.join(`ride_${rideId}`);
       try {
-        const rideData = await Ride.findById(rideId).populate("customer rider");
+        const rideData = await Ride.findById(rideId)
+          .populate("customer rider")
+          .populate("offers.driver", "name phone rating totalRides vehicle acceptanceRate cancellationRate memberSince verificationBadges");
         socket.emit("rideData", rideData);
       } catch (error) {
         socket.emit("error", { message: "Failed to receive ride data" });
@@ -149,7 +219,10 @@ const handleSocketConnection = (io) => {
     function sendNearbyRiders(socket, location, ride = null) {
       const nearbyriders = Array.from(onDutyRiders.values())
         .map((rider) => ({
-          ...rider,
+          socketId: rider.socketId,
+          riderId: rider.riderId,
+          coords: rider.coords,
+          profile: rider.profile,
           distance: geolib.getDistance(rider.coords, location),
         }))
         .filter((rider) => rider.distance <= 60000)

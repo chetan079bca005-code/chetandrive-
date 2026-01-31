@@ -1,11 +1,13 @@
 import { io, Socket } from 'socket.io-client';
-import { SOCKET_URL } from '../config/constants';
+import axios from 'axios';
+import { SOCKET_URL, API_URL } from '../config/constants';
 import { useAuthStore } from '../store';
-import { Coordinates, Ride, RiderInfo } from '../types';
+import { Coordinates, Ride, RiderInfo, DriverOffer } from '../types';
 
 class SocketManager {
   private socket: Socket | null = null;
   private listeners: Map<string, Function[]> = new Map();
+  private refreshing = false;
 
   // Connect to socket server
   connect(): Promise<void> {
@@ -37,7 +39,53 @@ class SocketManager {
         resolve();
       });
 
-      this.socket.on('connect_error', (error) => {
+      this.socket.on('connect_error', async (error: any) => {
+        const message = typeof error?.message === 'string' ? error.message : '';
+
+        if (message.includes('Authentication invalid')) {
+          const { tokens, setTokens, logout } = useAuthStore.getState();
+
+          if (tokens?.refresh_token && !this.refreshing) {
+            this.refreshing = true;
+            try {
+              const response = await axios.post(`${API_URL}/auth/refresh-token`, {
+                refresh_token: tokens.refresh_token,
+              });
+
+              const newTokens = {
+                access_token: response.data.access_token,
+                refresh_token: response.data.refresh_token,
+              };
+
+              setTokens(newTokens);
+              if (this.socket) {
+                this.socket.io.opts.extraHeaders = {
+                  access_token: newTokens.access_token,
+                };
+              }
+              this.socket?.connect();
+              this.refreshing = false;
+              return;
+            } catch (refreshError) {
+              this.refreshing = false;
+              logout();
+              this.socket?.disconnect();
+              this.socket = null;
+              reject(refreshError as any);
+              return;
+            }
+          }
+
+          logout();
+          if (this.socket) {
+            this.socket.io.opts.reconnection = false;
+            this.socket.disconnect();
+            this.socket = null;
+          }
+          reject(error);
+          return;
+        }
+
         console.error('Socket connection error:', error);
         reject(error);
       });
@@ -118,6 +166,11 @@ class SocketManager {
     this.socket?.emit('searchrider', rideId);
   }
 
+  // Passenger counter offer via socket
+  counterOffer(data: { rideId: string; offerId: string; amount: number; message?: string }): void {
+    this.socket?.emit('counterOffer', data);
+  }
+
   // Cancel current ride
   cancelRide(): void {
     this.socket?.emit('cancelRide');
@@ -148,6 +201,11 @@ class SocketManager {
   // Update rider location
   updateLocation(coords: Coordinates): void {
     this.socket?.emit('updateLocation', coords);
+  }
+
+  // Driver make offer via socket
+  makeOffer(data: { rideId: string; offeredFare: number; eta?: number; distanceToPickup?: number }): void {
+    this.socket?.emit('makeOffer', data);
   }
 
   // ==================== SOCKET LISTENERS ====================
@@ -185,6 +243,11 @@ class SocketManager {
   // Listen for ride data
   onRideData(callback: (ride: Ride) => void): () => void {
     return this.on('rideData', callback);
+  }
+
+  // Listen for offer updates
+  onOfferUpdate(callback: (offers: DriverOffer[]) => void): () => void {
+    return this.on('offerUpdate', callback);
   }
 
   // Listen for errors

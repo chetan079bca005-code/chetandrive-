@@ -20,6 +20,8 @@ const auth = async (req, res, next) => {
       throw new NotFoundError("User not found");
     }
 
+    req.user.role = user.role;
+
     next();
   } catch (error) {
     throw new UnauthenticatedError("Authentication invalid");

@@ -5,6 +5,7 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { ArrowLeft, Package, MapPin, Clock, ChevronRight, Box, FileText, Truck, Scale } from 'lucide-react-native';
 import { Colors } from '../../config/colors';
+import { useLocationStore, useRideStore } from '../../store';
 
 const packageTypes = [
   { id: 'document', name: 'Documents', icon: FileText, description: 'Letters, papers, files' },
@@ -15,9 +16,9 @@ const packageTypes = [
 
 export const CouriersScreen: React.FC = () => {
   const navigation = useNavigation<NativeStackNavigationProp<any>>();
+  const { pickupLocation, dropLocation } = useLocationStore();
+  const { setSelectedVehicle, setServiceDetails } = useRideStore();
   const [selectedPackage, setSelectedPackage] = useState<string | null>(null);
-  const [pickupAddress, setPickupAddress] = useState('');
-  const [dropAddress, setDropAddress] = useState('');
   const [packageDescription, setPackageDescription] = useState('');
 
   const handleBookCourier = () => {
@@ -25,16 +26,30 @@ export const CouriersScreen: React.FC = () => {
       Alert.alert('Error', 'Please select a package type');
       return;
     }
-    if (!pickupAddress || !dropAddress) {
-      Alert.alert('Error', 'Please enter pickup and delivery addresses');
+    if (!pickupLocation.coordinates || !dropLocation.coordinates) {
+      Alert.alert('Error', 'Please select pickup and delivery locations');
       return;
     }
 
-    Alert.alert(
-      'Courier Booked!',
-      'Your courier request has been submitted. A driver will pick up your package soon.',
-      [{ text: 'OK', onPress: () => navigation.goBack() }]
-    );
+    setServiceDetails({
+      delivery: {
+        packageType: selectedPackage || '',
+        description: packageDescription || '',
+      },
+    });
+
+    navigation.navigate('RideConfirmation', { serviceType: 'delivery' });
+  };
+
+  const handleSelectPackage = (packageId: string) => {
+    setSelectedPackage(packageId);
+    if (packageId === 'document' || packageId === 'small') {
+      setSelectedVehicle('bike');
+    } else if (packageId === 'medium') {
+      setSelectedVehicle('auto');
+    } else {
+      setSelectedVehicle('cabEconomy');
+    }
   };
 
   return (
@@ -65,7 +80,7 @@ export const CouriersScreen: React.FC = () => {
               return (
                 <TouchableOpacity
                   key={pkg.id}
-                  onPress={() => setSelectedPackage(pkg.id)}
+                  onPress={() => handleSelectPackage(pkg.id)}
                   className={`w-[48%] p-4 rounded-xl mb-3 ${
                     isSelected ? 'bg-primary/10 border-2 border-primary' : 'bg-gray-50 border-2 border-transparent'
                   }`}
@@ -85,37 +100,37 @@ export const CouriersScreen: React.FC = () => {
         <View className="px-4 py-4 bg-gray-50">
           <Text className="text-base font-semibold text-secondary mb-3">Pickup & Delivery</Text>
           
-          <View className="bg-white rounded-xl p-4 mb-3">
+          <TouchableOpacity
+            onPress={() => navigation.navigate('LocationSearch', { type: 'pickup', serviceType: 'delivery' })}
+            className="bg-white rounded-xl p-4 mb-3"
+            activeOpacity={0.7}
+          >
             <View className="flex-row items-center">
               <View className="w-8 h-8 rounded-full bg-green-100 items-center justify-center">
                 <MapPin size={16} color={Colors.success} />
               </View>
               <Text className="text-sm font-medium text-gray-500 ml-2">Pickup Location</Text>
             </View>
-            <TextInput
-              value={pickupAddress}
-              onChangeText={setPickupAddress}
-              placeholder="Enter pickup address"
-              className="mt-2 text-base text-secondary"
-              placeholderTextColor={Colors.gray400}
-            />
-          </View>
+            <Text className="mt-2 text-base text-secondary">
+              {pickupLocation.address || 'Select pickup location'}
+            </Text>
+          </TouchableOpacity>
 
-          <View className="bg-white rounded-xl p-4">
+          <TouchableOpacity
+            onPress={() => navigation.navigate('LocationSearch', { type: 'drop', serviceType: 'delivery' })}
+            className="bg-white rounded-xl p-4"
+            activeOpacity={0.7}
+          >
             <View className="flex-row items-center">
               <View className="w-8 h-8 rounded-full bg-red-100 items-center justify-center">
                 <MapPin size={16} color={Colors.danger} />
               </View>
               <Text className="text-sm font-medium text-gray-500 ml-2">Delivery Location</Text>
             </View>
-            <TextInput
-              value={dropAddress}
-              onChangeText={setDropAddress}
-              placeholder="Enter delivery address"
-              className="mt-2 text-base text-secondary"
-              placeholderTextColor={Colors.gray400}
-            />
-          </View>
+            <Text className="mt-2 text-base text-secondary">
+              {dropLocation.address || 'Select delivery location'}
+            </Text>
+          </TouchableOpacity>
         </View>
 
         {/* Package Details */}

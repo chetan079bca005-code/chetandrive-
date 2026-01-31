@@ -11,6 +11,8 @@ import './global.css';
 // Ignore specific warnings
 LogBox.ignoreLogs([
   'Non-serializable values were found in the navigation state',
+  'SafeAreaView has been deprecated and will be removed in a future release',
+  'setLayoutAnimationEnabledExperimental is currently a no-op in the New Architecture.',
 ]);
 
 // Keep the splash screen visible while we fetch resources

@@ -198,7 +198,7 @@ export const ProfileScreen: React.FC = () => {
               icon={<Briefcase size={20} color={Colors.gray600} />}
               title="Ride Requests"
               subtitle="View and manage requests"
-              onPress={() => navigation.navigate('Home')}
+              onPress={() => navigation.navigate('Requests')}
             />
             <MenuItem
               icon={<Wallet size={20} color={Colors.gray600} />}

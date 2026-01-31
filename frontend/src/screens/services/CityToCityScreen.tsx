@@ -5,6 +5,7 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { ArrowLeft, MapPin, Calendar, Clock, Users, ChevronRight, ChevronDown } from 'lucide-react-native';
 import { Colors } from '../../config/colors';
+import { useLocationStore, useRideStore } from '../../store';
 
 const popularRoutes = [
   { from: 'Kathmandu', to: 'Pokhara', fare: 'NPR 800-1200', time: '6-7 hrs' },
@@ -13,8 +14,19 @@ const popularRoutes = [
   { from: 'Pokhara', to: 'Chitwan', fare: 'NPR 500-800', time: '4-5 hrs' },
 ];
 
+const cityCoords: Record<string, { latitude: number; longitude: number }> = {
+  Kathmandu: { latitude: 27.7172, longitude: 85.3240 },
+  Pokhara: { latitude: 28.2096, longitude: 83.9856 },
+  Chitwan: { latitude: 27.5291, longitude: 84.3542 },
+  Lumbini: { latitude: 27.4844, longitude: 83.2760 },
+  Patan: { latitude: 27.6644, longitude: 85.3188 },
+  Bhaktapur: { latitude: 27.6710, longitude: 85.4298 },
+};
+
 export const CityToCityScreen: React.FC = () => {
   const navigation = useNavigation<NativeStackNavigationProp<any>>();
+  const { setPickupLocation, setDropLocation } = useLocationStore();
+  const { setServiceDetails } = useRideStore();
   const [fromCity, setFromCity] = useState('Kathmandu');
   const [toCity, setToCity] = useState('');
   const [date, setDate] = useState('');
@@ -25,12 +37,28 @@ export const CityToCityScreen: React.FC = () => {
       Alert.alert('Error', 'Please select a destination city');
       return;
     }
-    
-    Alert.alert(
-      'Searching Rides',
-      `Finding rides from ${fromCity} to ${toCity}...\n\nThis feature will be available soon!`,
-      [{ text: 'OK' }]
-    );
+
+    const fromCoords = cityCoords[fromCity];
+    const toCoords = cityCoords[toCity];
+
+    if (!fromCoords || !toCoords) {
+      Alert.alert('Error', 'Selected city coordinates are not available');
+      return;
+    }
+
+    setPickupLocation(fromCoords, fromCity);
+    setDropLocation(toCoords, toCity);
+
+    setServiceDetails({
+      intercity: {
+        fromCity,
+        toCity,
+        date: date || 'Today',
+        passengers,
+      },
+    });
+
+    navigation.navigate('RideConfirmation', { serviceType: 'intercity' });
   };
 
   const handleSelectRoute = (from: string, to: string) => {

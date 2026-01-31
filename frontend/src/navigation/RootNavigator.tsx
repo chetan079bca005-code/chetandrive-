@@ -15,6 +15,8 @@ import {
   ChatScreen,
   DriverProfileScreen,
   RideCompletionScreen,
+  RequestsScreen,
+  DriverRideScreen,
   NotificationsInboxScreen,
   NotificationsScreen,
   SettingsScreen,
@@ -35,11 +37,12 @@ export type RootStackParamList = {
   Onboarding: undefined;
   Login: undefined;
   MainDrawer: undefined;
-  LocationSearch: { type: 'pickup' | 'drop' };
+  LocationSearch: { type: 'pickup' | 'drop'; serviceType?: 'city' | 'intercity' | 'delivery' | 'freight' };
   ChooseOnMap: { type: 'pickup' | 'drop' };
-  RideConfirmation: undefined;
+  RideConfirmation: { serviceType?: 'city' | 'intercity' | 'delivery' | 'freight' } | undefined;
   RideTracking: { rideId: string };
   DriverOffers: {
+    rideId: string;
     proposedFare: number;
     distance: number;
     duration: number;
@@ -48,6 +51,8 @@ export type RootStackParamList = {
   Chat: { offerId?: string; rideId?: string; driver: DriverProfile };
   DriverProfile: { offer: DriverOffer };
   RideCompletion: { rideId: string };
+  Requests: undefined;
+  DriverRide: { rideId: string };
   NotificationsInbox: undefined;
   Notifications: undefined;
   Settings: undefined;
@@ -146,6 +151,8 @@ export const RootNavigator: React.FC = () => {
             gestureEnabled: false,
           }}
         />
+        <Stack.Screen name="Requests" component={RequestsScreen} />
+        <Stack.Screen name="DriverRide" component={DriverRideScreen} />
 
         {/* Services Screens */}
         <Stack.Screen name="City" component={CityScreen} />

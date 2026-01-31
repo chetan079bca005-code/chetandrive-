@@ -12,6 +12,8 @@ export {
 	ChatScreen,
 	DriverProfileScreen,
 	RideCompletionScreen,
+	RequestsScreen,
+	DriverRideScreen,
 } from './ride';
 
 // Activity Screens

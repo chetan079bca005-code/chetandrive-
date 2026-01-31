@@ -93,10 +93,13 @@ export const OSMMap: React.FC<OSMMapProps> = ({
     });
 
     const lineCoords = ${lineJson};
+    const lineLatLngs = Array.isArray(lineCoords)
+      ? lineCoords.map((c) => [c.latitude, c.longitude])
+      : [];
     let boundsPoints = [];
-    if (lineCoords.length) {
-      const polyline = L.polyline(lineCoords, { color: '${lineColor}', weight: ${lineWeight} }).addTo(map);
-      boundsPoints = boundsPoints.concat(lineCoords);
+    if (lineLatLngs.length) {
+      const polyline = L.polyline(lineLatLngs, { color: '${lineColor}', weight: ${lineWeight} }).addTo(map);
+      boundsPoints = boundsPoints.concat(lineLatLngs);
     }
 
     if (${fitBounds ? 'true' : 'false'}) {
@@ -120,6 +123,7 @@ export const OSMMap: React.FC<OSMMapProps> = ({
 
   return (
     <WebView
+      key={`${center.latitude}-${center.longitude}-${zoom}-${fitBounds}`}
       originWhitelist={['*']}
       source={{ html }}
       style={style}

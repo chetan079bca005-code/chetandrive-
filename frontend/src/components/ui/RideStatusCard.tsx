@@ -4,7 +4,7 @@ import { MapPin, Clock, Navigation } from 'lucide-react-native';
 import { Colors } from '../../config/colors';
 
 interface RideStatusCardProps {
-  status: 'SEARCHING_FOR_RIDER' | 'START' | 'ARRIVED' | 'COMPLETED';
+  status: 'SEARCHING_FOR_RIDER' | 'ACCEPTED' | 'ARRIVED' | 'START' | 'COMPLETED';
   pickupAddress: string;
   dropAddress: string;
   fare: number;
@@ -20,7 +20,7 @@ const statusConfig = {
     color: Colors.primary,
     showLoader: true,
   },
-  START: {
+  ACCEPTED: {
     title: 'Driver is on the way',
     subtitle: 'Your driver is heading to pickup location',
     color: Colors.info,
@@ -30,6 +30,12 @@ const statusConfig = {
     title: 'Driver has arrived',
     subtitle: 'Your driver is waiting at pickup location',
     color: Colors.success,
+    showLoader: false,
+  },
+  START: {
+    title: 'Trip in progress',
+    subtitle: 'Enjoy your ride',
+    color: Colors.info,
     showLoader: false,
   },
   COMPLETED: {
