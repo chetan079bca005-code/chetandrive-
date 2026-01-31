@@ -4,11 +4,13 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useAuthStore } from '../../store';
+import { authService } from '../../services';
 import { Colors } from '../../config/colors';
 
 export const SplashScreen: React.FC = () => {
   const navigation = useNavigation<NativeStackNavigationProp<any>>();
-  const { isAuthenticated, isOnboarded } = useAuthStore();
+  const { isAuthenticated, isOnboarded, tokens, setTokens, logout, setLoading } = useAuthStore();
+  const [isBootstrapping, setIsBootstrapping] = useState(true);
   const [dot1] = useState(new Animated.Value(0.3));
   const [dot2] = useState(new Animated.Value(0.3));
   const [dot3] = useState(new Animated.Value(0.3));
@@ -37,6 +39,32 @@ export const SplashScreen: React.FC = () => {
 
     animateDots();
 
+    return () => {};
+  }, []);
+
+  useEffect(() => {
+    const bootstrap = async () => {
+      setLoading(true);
+      if (tokens?.refresh_token) {
+        try {
+          const refreshed = await authService.refreshToken({
+            refresh_token: tokens.refresh_token,
+          });
+          setTokens(refreshed);
+        } catch {
+          logout();
+        }
+      }
+      setLoading(false);
+      setIsBootstrapping(false);
+    };
+
+    bootstrap();
+  }, [tokens?.refresh_token, logout, setTokens, setLoading]);
+
+  useEffect(() => {
+    if (isBootstrapping) return;
+
     const timer = setTimeout(() => {
       if (isAuthenticated) {
         navigation.replace('MainDrawer');
@@ -45,10 +73,10 @@ export const SplashScreen: React.FC = () => {
       } else {
         navigation.replace('Onboarding');
       }
-    }, 2500);
+    }, 1500);
 
     return () => clearTimeout(timer);
-  }, [isAuthenticated, isOnboarded, navigation]);
+  }, [isAuthenticated, isOnboarded, navigation, isBootstrapping]);
 
   return (
     <LinearGradient

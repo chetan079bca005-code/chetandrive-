@@ -21,7 +21,7 @@ interface AuthState {
 
 export const useAuthStore = create<AuthState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       user: null,
       tokens: null,
       isAuthenticated: false,
@@ -30,7 +30,11 @@ export const useAuthStore = create<AuthState>()(
       
       setUser: (user) => set({ user }),
       
-      setTokens: (tokens) => set({ tokens }),
+      setTokens: (tokens) =>
+        set({
+          tokens,
+          isAuthenticated: Boolean(tokens && get().user),
+        }),
       
       login: (user, tokens) => set({
         user,
