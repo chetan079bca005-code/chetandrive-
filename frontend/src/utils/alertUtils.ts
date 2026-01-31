@@ -1,6 +1,6 @@
 import { Vibration } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { Audio } from 'expo-av';
+import { createAudioPlayer } from 'expo-audio';
 
 let isPlaying = false;
 
@@ -25,17 +25,17 @@ export const triggerAlertFeedback = async (type: 'offer' | 'arrival' = 'offer') 
 
   try {
     isPlaying = true;
-    const { sound } = await Audio.Sound.createAsync({
-      uri: 'https://actions.google.com/sounds/v1/alarms/beep_short.ogg',
-    });
-    await sound.playAsync();
-    sound.setOnPlaybackStatusUpdate((status) => {
-      if (!status.isLoaded) return;
-      if (status.didJustFinish) {
-        sound.unloadAsync();
+    const player = createAudioPlayer('https://actions.google.com/sounds/v1/alarms/beep_short.ogg');
+    player.play();
+    setTimeout(() => {
+      try {
+        player.remove();
+      } catch {
+        // ignore
+      } finally {
         isPlaying = false;
       }
-    });
+    }, 3000);
   } catch {
     isPlaying = false;
   }

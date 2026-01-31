@@ -23,7 +23,7 @@ import { Ride } from '../../types';
 
 export const RequestsScreen: React.FC = () => {
   const navigation = useNavigation<NativeStackNavigationProp<any>>();
-  const { user } = useAuthStore();
+  const { user, isAuthenticated, tokens } = useAuthStore();
   const { currentLocation, setCurrentLocation } = useLocationStore();
   const { setCurrentRide } = useRideStore();
 
@@ -44,6 +44,9 @@ export const RequestsScreen: React.FC = () => {
 
     const initSocket = async () => {
       try {
+        if (!isAuthenticated || (!tokens?.access_token && !tokens?.refresh_token)) {
+          return;
+        }
         if (!socketManager.isConnected()) {
           await socketManager.connect();
         }
@@ -68,7 +71,7 @@ export const RequestsScreen: React.FC = () => {
       locationWatchRef.current?.remove();
       locationWatchRef.current = null;
     };
-  }, [user]);
+  }, [user, isAuthenticated, tokens?.access_token, tokens?.refresh_token]);
 
   const handleToggleDuty = async (value: boolean) => {
     if (!currentLocation) {

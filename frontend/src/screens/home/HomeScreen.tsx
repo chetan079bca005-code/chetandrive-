@@ -44,7 +44,7 @@ export const HomeScreen: React.FC = () => {
   } = useLocationStore();
 
   const { nearbyRiders, setNearbyRiders, setCurrentRide, currentRide } = useRideStore();
-  const { user } = useAuthStore();
+  const { user, isAuthenticated, tokens } = useAuthStore();
   const { savedPlaces } = usePreferencesStore();
   const isRider = user?.role === 'rider';
 
@@ -77,7 +77,9 @@ export const HomeScreen: React.FC = () => {
 
   useEffect(() => {
     requestLocationPermission();
-    connectSocket();
+    if (isAuthenticated && (tokens?.access_token || tokens?.refresh_token)) {
+      connectSocket();
+    }
 
     const unsubscribeRideOffer = socketManager.onRideOffer((ride) => {
       if (isRider) {
@@ -93,7 +95,7 @@ export const HomeScreen: React.FC = () => {
       locationWatchRef.current?.remove();
       locationWatchRef.current = null;
     };
-  }, [isRider]);
+  }, [isRider, isAuthenticated, tokens?.access_token, tokens?.refresh_token]);
 
   useEffect(() => {
     if (!isRider && currentLocation) {

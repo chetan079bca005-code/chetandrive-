@@ -12,91 +12,121 @@ class SocketManager {
   // Connect to socket server
   connect(): Promise<void> {
     return new Promise((resolve, reject) => {
-      const { tokens } = useAuthStore.getState();
-      
-      if (!tokens?.access_token) {
-        reject(new Error('No access token available'));
-        return;
-      }
+      const { tokens, setTokens, logout } = useAuthStore.getState();
 
-      if (this.socket?.connected) {
-        resolve();
-        return;
-      }
-
-      this.socket = io(SOCKET_URL, {
-        extraHeaders: {
-          access_token: tokens.access_token,
-        },
-        transports: ['websocket'],
-        reconnection: true,
-        reconnectionAttempts: 5,
-        reconnectionDelay: 1000,
-      });
-
-      this.socket.on('connect', () => {
-        console.log('Socket connected:', this.socket?.id);
-        resolve();
-      });
-
-      this.socket.on('connect_error', async (error: any) => {
-        const message = typeof error?.message === 'string' ? error.message : '';
-
-        if (message.includes('Authentication invalid')) {
-          const { tokens, setTokens, logout } = useAuthStore.getState();
-
-          if (tokens?.refresh_token && !this.refreshing) {
-            this.refreshing = true;
-            try {
-              const response = await axios.post(`${API_URL}/auth/refresh-token`, {
-                refresh_token: tokens.refresh_token,
-              });
-
-              const newTokens = {
-                access_token: response.data.access_token,
-                refresh_token: response.data.refresh_token,
-              };
-
-              setTokens(newTokens);
-              if (this.socket) {
-                this.socket.io.opts.extraHeaders = {
-                  access_token: newTokens.access_token,
-                };
-              }
-              this.socket?.connect();
-              this.refreshing = false;
-              return;
-            } catch (refreshError) {
-              this.refreshing = false;
-              logout();
-              this.socket?.disconnect();
-              this.socket = null;
-              reject(refreshError as any);
-              return;
-            }
+      const ensureAccessToken = async () => {
+        if (tokens?.access_token) return tokens.access_token;
+        if (tokens?.refresh_token && !this.refreshing) {
+          this.refreshing = true;
+          try {
+            const response = await axios.post(`${API_URL}/auth/refresh-token`, {
+              refresh_token: tokens.refresh_token,
+            });
+            const newTokens = {
+              access_token: response.data.access_token,
+              refresh_token: response.data.refresh_token,
+            };
+            setTokens(newTokens);
+            this.refreshing = false;
+            return newTokens.access_token;
+          } catch (error) {
+            this.refreshing = false;
+            logout();
+            return null;
           }
+        }
+        return null;
+      };
 
-          logout();
-          if (this.socket) {
-            this.socket.io.opts.reconnection = false;
-            this.socket.disconnect();
-            this.socket = null;
-          }
-          reject(error);
+      ensureAccessToken().then((accessToken) => {
+        if (!accessToken) {
+          reject(new Error('No access token available'));
           return;
         }
 
-        console.error('Socket connection error:', error);
-        reject(error);
-      });
+        if (this.socket?.connected) {
+          resolve();
+          return;
+        }
 
-      this.socket.on('disconnect', (reason) => {
-        console.log('Socket disconnected:', reason);
-      });
+        this.socket = io(SOCKET_URL, {
+          extraHeaders: {
+            access_token: accessToken,
+          },
+          transports: ['websocket'],
+          reconnection: true,
+          reconnectionAttempts: 5,
+          reconnectionDelay: 1000,
+        });
 
-      this.socket.on('error', (data: { message: string }) => {
-        console.error('Socket error:', data.message);
-        this.emit('error', data);
+        this.socket.on('connect', () => {
+          console.log('Socket connected:', this.socket?.id);
+          resolve();
+        });
+
+        this.socket.on('connect_error', async (error: any) => {
+          const message = typeof error?.message === 'string' ? error.message : '';
+          const isUnauthorized =
+            message.includes('Authentication invalid') ||
+            message.includes('401') ||
+            error?.data?.status === 401;
+
+          if (isUnauthorized) {
+            const { tokens, setTokens, logout } = useAuthStore.getState();
+
+            if (tokens?.refresh_token && !this.refreshing) {
+              this.refreshing = true;
+              try {
+                const response = await axios.post(`${API_URL}/auth/refresh-token`, {
+                  refresh_token: tokens.refresh_token,
+                });
+
+                const newTokens = {
+                  access_token: response.data.access_token,
+                  refresh_token: response.data.refresh_token,
+                };
+
+                setTokens(newTokens);
+                if (this.socket) {
+                  this.socket.io.opts.extraHeaders = {
+                    access_token: newTokens.access_token,
+                  };
+                }
+                this.socket?.connect();
+                this.refreshing = false;
+                return;
+              } catch (refreshError) {
+                this.refreshing = false;
+                logout();
+                this.socket?.disconnect();
+                this.socket = null;
+                reject(refreshError as any);
+                return;
+              }
+            }
+
+            logout();
+            if (this.socket) {
+              this.socket.io.opts.reconnection = false;
+              this.socket.disconnect();
+              this.socket = null;
+            }
+            reject(error);
+            return;
+          }
+
+          console.error('Socket connection error:', error);
+          reject(error);
+        });
+
+        this.socket.on('disconnect', (reason) => {
+          console.log('Socket disconnected:', reason);
+        });
+
+        this.socket.on('error', (data: { message: string }) => {
+          console.error('Socket error:', data.message);
+          this.emit('error', data);
+        });
       });
     });
   }
