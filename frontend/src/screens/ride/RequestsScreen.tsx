@@ -23,7 +23,7 @@ import { Ride } from '../../types';
 
 export const RequestsScreen: React.FC = () => {
   const navigation = useNavigation<NativeStackNavigationProp<any>>();
-  const { user, isAuthenticated, tokens } = useAuthStore();
+  const {  user, isAuthenticated, tokens , activeRole } = useAuthStore();
   const { currentLocation, setCurrentLocation } = useLocationStore();
   const { setCurrentRide } = useRideStore();
 
@@ -36,7 +36,7 @@ export const RequestsScreen: React.FC = () => {
   const locationWatchRef = useRef<Location.LocationSubscription | null>(null);
 
   useEffect(() => {
-    if (user?.role !== 'rider') {
+    if (activeRole !== 'rider') {
       Alert.alert('Access denied', 'Only drivers can view ride requests.');
       navigation.goBack();
       return;

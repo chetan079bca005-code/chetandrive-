@@ -7,6 +7,13 @@ import {
   generateOTP,
 } from "../utils/mapUtils.js";
 
+const getIdString = (docOrId) => {
+  if (!docOrId) return "";
+  if (typeof docOrId === "string") return docOrId;
+  if (typeof docOrId === "object" && docOrId._id) return docOrId._id.toString();
+  return docOrId.toString();
+};
+
 export const createRide = async (req, res) => {
   const {
     vehicle,
@@ -42,9 +49,7 @@ export const createRide = async (req, res) => {
 
   const customer = req.user;
 
-  if (customer.role !== "customer") {
-    throw new BadRequestError("Only customers can create rides");
-  }
+
 
   try {
     const distance = calculateDistance(pickupLat, pickupLon, dropLat, dropLon);
@@ -93,8 +98,8 @@ export const createRideOffer = async (req, res) => {
     throw new BadRequestError("Ride ID and offered fare are required");
   }
 
-  if (req.user.role !== "rider") {
-    throw new BadRequestError("Only riders can make offers");
+  if (req.user.driverStatus !== "verified") {
+    throw new BadRequestError("Only verified drivers can make offers");
   }
 
   const ride = await Ride.findById(rideId).populate("customer rider");
@@ -120,7 +125,7 @@ export const createRideOffer = async (req, res) => {
     .populate("rider", "name phone rating totalRides")
     .populate("offers.driver", "name phone rating totalRides vehicle acceptanceRate cancellationRate memberSince verificationBadges");
 
-  req.socket.to(`ride_${rideId}`).emit("offerUpdate", populatedRide.offers);
+  req.io.to(`ride_${rideId}`).emit("offerUpdate", populatedRide.offers);
 
   res.status(StatusCodes.CREATED).json({
     message: "Offer created",
@@ -142,19 +147,11 @@ export const counterRideOffer = async (req, res) => {
   const offer = ride.offers.id(offerId);
   if (!offer) throw new NotFoundError("Offer not found");
 
-  const isCustomer = req.user.role === "customer";
-  const isRider = req.user.role === "rider";
+  const isCustomer = getIdString(ride.customer) === req.user.id;
+  const isRider = getIdString(offer.driver) === req.user.id;
 
   if (!isCustomer && !isRider) {
-    throw new BadRequestError("Invalid user role");
-  }
-
-  if (isCustomer && ride.customer.toString() !== req.user.id) {
-    throw new BadRequestError("Only the ride customer can counter offers");
-  }
-
-  if (isRider && offer.driver.toString() !== req.user.id) {
-    throw new BadRequestError("Only the offer driver can counter offers");
+    throw new BadRequestError("Only the customer or the offering driver can counter offers");
   }
 
   const from = isRider ? "driver" : "passenger";
@@ -167,7 +164,7 @@ export const counterRideOffer = async (req, res) => {
   offer.status = "countered";
   await ride.save();
 
-  req.socket.to(`ride_${rideId}`).emit("offerUpdate", ride.offers);
+  req.io.to(`ride_${rideId}`).emit("offerUpdate", ride.offers);
 
   res.status(StatusCodes.OK).json({
     message: "Counter offer sent",
@@ -182,14 +179,12 @@ export const acceptRideOffer = async (req, res) => {
     throw new BadRequestError("Ride ID and offer ID are required");
   }
 
-  if (req.user.role !== "customer") {
-    throw new BadRequestError("Only customers can accept offers");
-  }
+
 
   let ride = await Ride.findById(rideId).populate("customer rider");
   if (!ride) throw new NotFoundError("Ride not found");
 
-  if (ride.customer.toString() !== req.user.id) {
+  if (getIdString(ride.customer) !== req.user.id) {
     throw new BadRequestError("Only the ride customer can accept offers");
   }
 
@@ -216,8 +211,8 @@ export const acceptRideOffer = async (req, res) => {
 
   ride = await ride.populate("rider", "name phone rating totalRides vehicle acceptanceRate cancellationRate memberSince verificationBadges");
 
-  req.socket.to(`ride_${rideId}`).emit("rideAccepted");
-  req.socket.to(`ride_${rideId}`).emit("rideUpdate", ride);
+  req.io.to(`ride_${rideId}`).emit("rideAccepted");
+  req.io.to(`ride_${rideId}`).emit("rideUpdate", ride);
 
   res.status(StatusCodes.OK).json({
     message: "Offer accepted",
@@ -232,14 +227,12 @@ export const rejectRideOffer = async (req, res) => {
     throw new BadRequestError("Ride ID and offer ID are required");
   }
 
-  if (req.user.role !== "customer") {
-    throw new BadRequestError("Only customers can reject offers");
-  }
+
 
   const ride = await Ride.findById(rideId);
   if (!ride) throw new NotFoundError("Ride not found");
 
-  if (ride.customer.toString() !== req.user.id) {
+  if (getIdString(ride.customer) !== req.user.id) {
     throw new BadRequestError("Only the ride customer can reject offers");
   }
 
@@ -249,7 +242,7 @@ export const rejectRideOffer = async (req, res) => {
   offer.status = "rejected";
   await ride.save();
 
-  req.socket.to(`ride_${rideId}`).emit("offerUpdate", ride.offers);
+  req.io.to(`ride_${rideId}`).emit("offerUpdate", ride.offers);
 
   res.status(StatusCodes.OK).json({
     message: "Offer rejected",
@@ -266,7 +259,7 @@ export const getRideOffers = async (req, res) => {
 
   if (!ride) throw new NotFoundError("Ride not found");
 
-  if (req.user.role !== "customer" || ride.customer.toString() !== req.user.id) {
+  if (getIdString(ride.customer) !== req.user.id) {
     throw new BadRequestError("Only the ride customer can view offers");
   }
 
@@ -283,11 +276,9 @@ export const cancelRide = async (req, res) => {
   const ride = await Ride.findById(rideId);
   if (!ride) throw new NotFoundError("Ride not found");
 
-  if (req.user.role !== "customer") {
-    throw new BadRequestError("Only customers can cancel rides");
-  }
 
-  if (ride.customer.toString() !== req.user.id) {
+
+  if (getIdString(ride.customer) !== req.user.id) {
     throw new BadRequestError("You can only cancel your own rides");
   }
 
@@ -296,7 +287,7 @@ export const cancelRide = async (req, res) => {
   }
 
   await Ride.findByIdAndDelete(rideId);
-  req.socket.to(`ride_${rideId}`).emit("rideCanceled", { message: "Ride canceled" });
+  req.io.to(`ride_${rideId}`).emit("rideCanceled", { message: "Ride canceled" });
 
   res.status(StatusCodes.OK).json({
     message: "Ride canceled",
@@ -319,11 +310,11 @@ export const rateRide = async (req, res) => {
   const ride = await Ride.findById(rideId).populate("customer rider");
   if (!ride) throw new NotFoundError("Ride not found");
 
-  const isCustomer = req.user.role === "customer";
-  const isRider = req.user.role === "rider";
+  const isCustomer = getIdString(ride.customer) === req.user.id;
+  const isRider = ride.rider && getIdString(ride.rider) === req.user.id;
 
   if (!isCustomer && !isRider) {
-    throw new BadRequestError("Invalid rater role");
+    throw new BadRequestError("You can only rate rides you participated in");
   }
 
   if (ride.status !== "COMPLETED") {
@@ -331,7 +322,7 @@ export const rateRide = async (req, res) => {
   }
 
   if (isCustomer) {
-    if (ride.customer.toString() !== req.user.id) {
+    if (getIdString(ride.customer) !== req.user.id) {
       throw new BadRequestError("You can only rate your own rides");
     }
     if (!ride.rider || typeof ride.rider === "string") {
@@ -355,7 +346,7 @@ export const rateRide = async (req, res) => {
   }
 
   if (isRider) {
-    if (!ride.rider || ride.rider.toString() !== req.user.id) {
+    if (!ride.rider || getIdString(ride.rider) !== req.user.id) {
       throw new BadRequestError("You can only rate your own rides");
     }
     if (!ride.customer || typeof ride.customer === "string") {
@@ -393,8 +384,8 @@ export const acceptRide = async (req, res) => {
     throw new BadRequestError("Ride ID is required");
   }
 
-  if (req.user.role !== "rider") {
-    throw new BadRequestError("Only riders can accept rides");
+  if (req.user.driverStatus !== "verified") {
+    throw new BadRequestError("Only verified drivers can accept rides");
   }
 
   try {
@@ -408,7 +399,7 @@ export const acceptRide = async (req, res) => {
       throw new BadRequestError("Ride is no longer available for assignment");
     }
 
-    if (ride.customer.toString() === riderId) {
+    if (getIdString(ride.customer) === riderId) {
       throw new BadRequestError("You cannot accept your own ride");
     }
 
@@ -418,8 +409,8 @@ export const acceptRide = async (req, res) => {
 
     ride = await ride.populate("rider");
 
-    req.socket.to(`ride_${rideId}`).emit("rideUpdate", ride);
-    req.socket.to(`ride_${rideId}`).emit("rideAccepted");
+    req.io.to(`ride_${rideId}`).emit("rideUpdate", ride);
+    req.io.to(`ride_${rideId}`).emit("rideAccepted");
 
     res.status(StatusCodes.OK).json({
       message: "Ride accepted successfully",
@@ -440,17 +431,16 @@ export const updateRideStatus = async (req, res) => {
   }
 
   try {
-    if (req.user.role !== "rider") {
-      throw new BadRequestError("Only riders can update ride status");
+    if (req.user.driverStatus !== "verified") {
+      throw new BadRequestError("Only verified drivers can update ride status");
     }
 
     let ride = await Ride.findById(rideId).populate("customer rider");
-    if (!ride.rider || ride.rider.toString() !== req.user.id) {
-      throw new BadRequestError("You can only update your assigned ride");
-    }
-
     if (!ride) {
       throw new NotFoundError("Ride not found");
+    }
+    if (!ride.rider || getIdString(ride.rider) !== req.user.id) {
+      throw new BadRequestError("You can only update your assigned ride");
     }
 
     if (!["ACCEPTED", "ARRIVED", "START", "COMPLETED"].includes(status)) {
@@ -460,7 +450,7 @@ export const updateRideStatus = async (req, res) => {
     ride.status = status;
     await ride.save();
 
-    req.socket.to(`ride_${rideId}`).emit("rideUpdate", ride);
+    req.io.to(`ride_${rideId}`).emit("rideUpdate", ride);
 
     res.status(StatusCodes.OK).json({
       message: `Ride status updated to ${status}`,
@@ -474,11 +464,11 @@ export const updateRideStatus = async (req, res) => {
 
 export const getMyRides = async (req, res) => {
   const userId = req.user.id;
-  const { status } = req.query;
+  const { status, role } = req.query;
 
   try {
     const query =
-      req.user.role === "rider"
+      role === "rider"
         ? { rider: userId }
         : { customer: userId };
 
@@ -510,14 +500,14 @@ export const verifyRideOtp = async (req, res) => {
     throw new BadRequestError("Ride ID and OTP are required");
   }
 
-  if (req.user.role !== "rider") {
-    throw new BadRequestError("Only riders can verify OTP");
+  if (req.user.driverStatus !== "verified") {
+    throw new BadRequestError("Only verified drivers can verify OTP");
   }
 
   const ride = await Ride.findById(rideId).populate("customer rider");
   if (!ride) throw new NotFoundError("Ride not found");
 
-  if (!ride.rider || ride.rider.toString() !== req.user.id) {
+  if (!ride.rider || getIdString(ride.rider) !== req.user.id) {
     throw new BadRequestError("You can only verify OTP for your assigned ride");
   }
 
@@ -528,7 +518,7 @@ export const verifyRideOtp = async (req, res) => {
   ride.status = "START";
   await ride.save();
 
-  req.socket.to(`ride_${rideId}`).emit("rideUpdate", ride);
+  req.io.to(`ride_${rideId}`).emit("rideUpdate", ride);
 
   res.status(StatusCodes.OK).json({
     message: "OTP verified",

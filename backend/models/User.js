@@ -7,8 +7,8 @@ const userSchema = new Schema(
   {
     role: {
       type: String,
-      enum: ["customer", "rider"],
-      required: true,
+      enum: ["user", "admin"],
+      default: "user",
     },
     name: {
       type: String,
@@ -17,8 +17,24 @@ const userSchema = new Schema(
     },
     phone: {
       type: String,
-      required: true,
       unique: true,
+      sparse: true,
+      default: undefined,
+    },
+    email: {
+      type: String,
+      trim: true,
+      lowercase: true,
+      unique: true,
+      sparse: true,
+    },
+    loginOtp: {
+      type: String,
+      select: false, // Don't return this in normal queries
+    },
+    loginOtpExpiry: {
+      type: Date,
+      select: false,
     },
     rating: {
       type: Number,
@@ -50,6 +66,22 @@ const userSchema = new Schema(
       type: [String],
       default: ["ID Verified"],
     },
+    driverStatus: {
+      type: String,
+      enum: ["unverified", "pending", "verified", "rejected"],
+      default: "unverified",
+    },
+    dob: { type: String, default: "" },
+    driverPhoto: { type: String, default: "" },
+    license: {
+      number: { type: String, default: "" },
+      photo: { type: String, default: "" },
+      expDate: { type: String, default: "" },
+    },
+    registration: {
+      photo: { type: String, default: "" },
+    },
+    rejectionReason: { type: String, default: "" },
     vehicle: {
       type: {
         type: String,

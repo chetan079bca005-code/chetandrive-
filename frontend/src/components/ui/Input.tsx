@@ -10,11 +10,12 @@ interface InputProps {
   onChangeText: (text: string) => void;
   error?: string;
   secureTextEntry?: boolean;
-  keyboardType?: 'default' | 'email-address' | 'numeric' | 'phone-pad';
+  keyboardType?: 'default' | 'email-address' | 'numeric' | 'phone-pad' | 'number-pad';
   autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
   leftIcon?: React.ReactNode;
   rightIcon?: React.ReactNode;
   disabled?: boolean;
+  editable?: boolean;
   multiline?: boolean;
   numberOfLines?: number;
   maxLength?: number;

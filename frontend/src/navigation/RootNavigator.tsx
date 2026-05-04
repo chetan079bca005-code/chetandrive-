@@ -25,12 +25,15 @@ import {
   PaymentMethodsScreen,
   SafetyScreen,
   HelpCenterScreen,
+  ActivityScreen,
+  RideDetailsScreen,
   CityScreen,
   CouriersScreen,
   CityToCityScreen,
   FreightScreen,
+  DriverRegistrationScreen,
 } from '../screens';
-import { DriverOffer, DriverProfile } from '../types';
+import { DriverOffer, DriverProfile, Ride } from '../types';
 
 export type RootStackParamList = {
   Splash: undefined;
@@ -59,12 +62,14 @@ export type RootStackParamList = {
   PersonalInfo: undefined;
   SavedPlaces: undefined;
   PaymentMethods: undefined;
+  RideDetails: { ride: Ride };
   Safety: undefined;
   HelpCenter: undefined;
   City: undefined;
   Couriers: undefined;
   CityToCity: undefined;
   Freight: undefined;
+  DriverRegistration: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -85,6 +90,7 @@ export const RootNavigator: React.FC = () => {
         <Stack.Screen name="Splash" component={SplashScreen} />
         <Stack.Screen name="Onboarding" component={OnboardingScreen} />
         <Stack.Screen name="Login" component={LoginScreen} />
+        <Stack.Screen name="DriverRegistration" component={DriverRegistrationScreen} />
 
         {/* Main App */}
         <Stack.Screen name="MainDrawer" component={DrawerNavigator} />
@@ -96,6 +102,7 @@ export const RootNavigator: React.FC = () => {
         <Stack.Screen name="PersonalInfo" component={PersonalInfoScreen} />
         <Stack.Screen name="SavedPlaces" component={SavedPlacesScreen} />
         <Stack.Screen name="PaymentMethods" component={PaymentMethodsScreen} />
+        <Stack.Screen name="RideDetails" component={RideDetailsScreen} />
         <Stack.Screen name="Safety" component={SafetyScreen} />
         <Stack.Screen name="HelpCenter" component={HelpCenterScreen} />
 

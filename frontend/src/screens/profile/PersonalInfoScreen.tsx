@@ -1,12 +1,35 @@
-import React from 'react';
-import { View, Text, TextInput, StatusBar } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, TextInput, StatusBar, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { usePreferencesStore, useAuthStore } from '../../store';
 import { Colors } from '../../config/colors';
+import { Button } from '../../components/ui';
+import { authService } from '../../services';
 
 export const PersonalInfoScreen: React.FC = () => {
   const { profile, setProfileField } = usePreferencesStore();
-  const { user } = useAuthStore();
+  const { user, setUser } = useAuthStore();
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    try {
+      setSaving(true);
+      const response = await authService.updateProfile({
+        name: profile.fullName?.trim(),
+        email: profile.email?.trim(),
+      });
+      setUser(response.user);
+      Alert.alert('Success', 'Profile updated successfully.');
+    } catch (error: any) {
+      const message =
+        error?.response?.data?.message ||
+        error?.response?.data?.msg ||
+        'Failed to update profile';
+      Alert.alert('Error', message);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <SafeAreaView className="flex-1 bg-white">
@@ -50,6 +73,13 @@ export const PersonalInfoScreen: React.FC = () => {
           placeholder="Emergency contact number"
           keyboardType="phone-pad"
           className="border border-gray-200 rounded-xl px-4 py-3 text-secondary"
+        />
+
+        <Button
+          title="Save Profile"
+          onPress={handleSave}
+          loading={saving}
+          className="mt-8"
         />
       </View>
     </SafeAreaView>

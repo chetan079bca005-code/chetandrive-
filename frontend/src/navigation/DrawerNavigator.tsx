@@ -18,6 +18,7 @@ import {
   MessageCircle,
   LogOut,
   User,
+  Repeat,
 } from 'lucide-react-native';
 import { MainTabNavigator } from './MainTabNavigator';
 import { Colors } from '../config/colors';
@@ -51,7 +52,7 @@ const DrawerRow: React.FC<{
 );
 
 const CustomDrawerContent: React.FC<any> = (props) => {
-  const { logout, user } = useAuthStore();
+  const { logout, user, activeRole, setActiveRole } = useAuthStore();
   const navigation = props.navigation;
   const rootNavigation = useNavigation<any>();
 
@@ -68,7 +69,7 @@ const CustomDrawerContent: React.FC<any> = (props) => {
           </View>
           <View className="flex-1">
             <Text className="text-lg font-semibold text-secondary">
-              {user?.phone || 'Chetan'}
+              {user?.name || user?.phone || 'User'}
             </Text>
             <Text className="text-sm text-gray-500">View profile</Text>
           </View>
@@ -76,43 +77,80 @@ const CustomDrawerContent: React.FC<any> = (props) => {
       </TouchableOpacity>
 
       <View className="px-4 py-2">
-        <DrawerRow
-          icon={<MapPin size={20} color={Colors.gray700} />}
-          label="City"
-          onPress={() => {
-            navigation.closeDrawer();
-            rootNavigation.navigate('City');
-          }}
-        />
-        <DrawerRow
-          icon={<Clock size={20} color={Colors.gray700} />}
-          label="Request history"
-          onPress={() => navigation.navigate('MainTabs', { screen: 'Activity' })}
-        />
-        <DrawerRow
-          icon={<Package size={20} color={Colors.gray700} />}
-          label="Couriers"
-          onPress={() => {
-            navigation.closeDrawer();
-            rootNavigation.navigate('Couriers');
-          }}
-        />
-        <DrawerRow
-          icon={<Globe size={20} color={Colors.gray700} />}
-          label="City to City"
-          onPress={() => {
-            navigation.closeDrawer();
-            rootNavigation.navigate('CityToCity');
-          }}
-        />
-        <DrawerRow
-          icon={<Truck size={20} color={Colors.gray700} />}
-          label="Freight"
-          onPress={() => {
-            navigation.closeDrawer();
-            rootNavigation.navigate('Freight');
-          }}
-        />
+        {activeRole === 'rider' ? (
+          <>
+            <DrawerRow
+              icon={<MapPin size={20} color={Colors.gray700} />}
+              label="City Rides"
+              onPress={() => {
+                navigation.closeDrawer();
+                rootNavigation.navigate('City');
+              }}
+            />
+            <DrawerRow
+              icon={<Clock size={20} color={Colors.gray700} />}
+              label="Ride History"
+              onPress={() => navigation.navigate('MainTabs', { screen: 'Activity' })}
+            />
+            <DrawerRow
+              icon={<Package size={20} color={Colors.gray700} />}
+              label="Couriers"
+              onPress={() => {
+                navigation.closeDrawer();
+                rootNavigation.navigate('Couriers');
+              }}
+            />
+            <DrawerRow
+              icon={<Globe size={20} color={Colors.gray700} />}
+              label="Intercity"
+              onPress={() => {
+                navigation.closeDrawer();
+                rootNavigation.navigate('CityToCity');
+              }}
+            />
+            <DrawerRow
+              icon={<Truck size={20} color={Colors.gray700} />}
+              label="Freight"
+              onPress={() => {
+                navigation.closeDrawer();
+                rootNavigation.navigate('Freight');
+              }}
+            />
+            <DrawerRow
+              icon={<Shield size={20} color={Colors.gray700} />}
+              label="Safety"
+              onPress={() => {
+                navigation.closeDrawer();
+                rootNavigation.navigate('Safety');
+              }}
+            />
+          </>
+        ) : (
+          <>
+            <DrawerRow
+              icon={<MapPin size={20} color={Colors.gray700} />}
+              label="Drive Now (City)"
+              onPress={() => {
+                navigation.closeDrawer();
+                navigation.navigate('MainTabs', { screen: 'Home' });
+              }}
+            />
+            <DrawerRow
+              icon={<Clock size={20} color={Colors.gray700} />}
+              label="Earnings & History"
+              onPress={() => navigation.navigate('MainTabs', { screen: 'Activity' })}
+            />
+            <DrawerRow
+              icon={<Truck size={20} color={Colors.gray700} />}
+              label="My Vehicle Info"
+              onPress={() => {
+                navigation.closeDrawer();
+                rootNavigation.navigate('PersonalInfo');
+              }}
+            />
+          </>
+        )}
+
         <DrawerRow
           icon={<Bell size={20} color={Colors.gray700} />}
           label="Notifications"
@@ -120,14 +158,6 @@ const CustomDrawerContent: React.FC<any> = (props) => {
           onPress={() => {
             navigation.closeDrawer();
             rootNavigation.navigate('NotificationsInbox');
-          }}
-        />
-        <DrawerRow
-          icon={<Shield size={20} color={Colors.gray700} />}
-          label="Safety"
-          onPress={() => {
-            navigation.closeDrawer();
-            rootNavigation.navigate('Safety');
           }}
         />
         <DrawerRow
@@ -140,15 +170,7 @@ const CustomDrawerContent: React.FC<any> = (props) => {
         />
         <DrawerRow
           icon={<HelpCircle size={20} color={Colors.gray700} />}
-          label="Help"
-          onPress={() => {
-            navigation.closeDrawer();
-            rootNavigation.navigate('HelpCenter');
-          }}
-        />
-        <DrawerRow
-          icon={<MessageCircle size={20} color={Colors.gray700} />}
-          label="Support"
+          label="Help & Support"
           onPress={() => {
             navigation.closeDrawer();
             rootNavigation.navigate('HelpCenter');
@@ -157,13 +179,36 @@ const CustomDrawerContent: React.FC<any> = (props) => {
       </View>
 
       <View className="px-4 mt-auto pb-4">
-        <TouchableOpacity
-          className="bg-primary rounded-2xl py-4 items-center"
-          activeOpacity={0.8}
-          onPress={() => navigation.navigate('MainTabs', { screen: 'Profile' })}
-        >
-          <Text className="text-base font-semibold text-secondary">Driver mode</Text>
-        </TouchableOpacity>
+        {user?.driverStatus === 'verified' ? (
+          <TouchableOpacity
+            className="flex-row rounded-2xl py-4 items-center justify-center mb-4 bg-gray-100"
+            activeOpacity={0.8}
+            onPress={() => {
+              setActiveRole(activeRole === 'rider' ? 'driver' : 'rider');
+              navigation.closeDrawer();
+            }}
+          >
+            <Repeat size={20} color={Colors.secondary} />
+            <Text className="text-base font-semibold text-secondary ml-2">
+              Switch to {activeRole === 'rider' ? 'Driver' : 'Rider'}
+            </Text>
+          </TouchableOpacity>
+        ) : activeRole === 'rider' ? (
+          <TouchableOpacity
+            className="bg-primary rounded-2xl py-4 items-center mb-4 flex-row justify-center"
+            activeOpacity={0.8}
+            onPress={() => {
+              if(!user?.driverStatus || user?.driverStatus === 'unverified') {
+                 navigation.closeDrawer();
+                 rootNavigation.navigate('DriverRegistration');
+              } else {
+                 Alert.alert('Application Status', `Your driver application is currently ${user?.driverStatus}`);
+              }
+            }}
+          >
+            <Text className="text-base font-semibold text-secondary">Become a driver</Text>
+          </TouchableOpacity>
+        ) : null}
 
         <TouchableOpacity
           className="flex-row items-center justify-center mt-4"

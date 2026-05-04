@@ -1,7 +1,24 @@
+import Constants from 'expo-constants';
+
+const getRuntimeBaseUrl = () => {
+  const explicitUrl = process.env.EXPO_PUBLIC_API_URL?.trim();
+  if (explicitUrl) {
+    return explicitUrl;
+  }
+
+  const hostUri = Constants.expoConfig?.hostUri || (Constants as any).manifest2?.extra?.expoGo?.debuggerHost;
+  const host = hostUri?.split(':')?.[0];
+  if (host) {
+    return `http://${host}:3000`;
+  }
+
+  return 'http://localhost:3000';
+};
+
 // API Configuration
 export const API_CONFIG = {
-  BASE_URL: 'http://192.168.1.76:3000', // Your local network IP
-  SOCKET_URL: 'http://192.168.1.76:3000',
+  BASE_URL: getRuntimeBaseUrl(),
+  SOCKET_URL: getRuntimeBaseUrl(),
   GALLI_MAP_ACCESS_TOKEN: process.env.EXPO_PUBLIC_GALLI_MAP_ACCESS_TOKEN || '', // Legacy (unused with OSM)
   GALLI_MAP_BASE_URL: 'https://route-init.gallimap.com/api/v1', // Legacy (unused with OSM)
   NOMINATIM_BASE_URL: 'https://nominatim.openstreetmap.org',
@@ -41,6 +58,7 @@ export const VEHICLE_TYPES = {
 // Ride Status
 export const RIDE_STATUS = {
   SEARCHING: 'SEARCHING_FOR_RIDER',
+  ACCEPTED: 'ACCEPTED',
   START: 'START',
   ARRIVED: 'ARRIVED',
   COMPLETED: 'COMPLETED',

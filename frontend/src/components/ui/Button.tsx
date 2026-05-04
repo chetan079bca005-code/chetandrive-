@@ -10,6 +10,7 @@ interface ButtonProps {
   disabled?: boolean;
   loading?: boolean;
   icon?: React.ReactNode;
+  rightIcon?: React.ReactNode;
   iconPosition?: 'left' | 'right';
   fullWidth?: boolean;
   className?: string;

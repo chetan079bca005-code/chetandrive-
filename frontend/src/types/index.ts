@@ -3,7 +3,21 @@
 export interface User {
   _id: string;
   phone: string;
-  role: 'customer' | 'rider';
+  name?: string;
+  email?: string;
+  role?: 'user' | 'admin';
+  driverStatus?: 'unverified' | 'pending' | 'verified' | 'rejected';
+  rejectionReason?: string;
+  vehicle?: {
+    type: VehicleType;
+    make: string;
+    model: string;
+    color: string;
+    licensePlate: string;
+    year: number;
+    capacity: number;
+    photo?: string;
+  };
   createdAt: string;
   updatedAt: string;
 }
@@ -156,6 +170,9 @@ export interface SocketListeners {
   riderLocationUpdate: (data: { riderId: string; coords: Coordinates }) => void;
   rideData: (ride: Ride) => void;
   offerUpdate: (offers: DriverOffer[]) => void;
+  "chat:new": (message: ChatMessage) => void;
+  "chat:typing": (data: { rideId: string; userId: string; isTyping: boolean }) => void;
+  "chat:read": (data: { rideId: string; userId: string }) => void;
   error: (data: { message: string }) => void;
 }
 

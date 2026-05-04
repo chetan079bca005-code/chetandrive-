@@ -35,6 +35,11 @@ const statusConfig = {
     color: Colors.info,
     icon: Navigation,
   },
+  ACCEPTED: {
+    label: 'Accepted',
+    color: Colors.info,
+    icon: CheckCircle,
+  },
   ARRIVED: {
     label: 'Arrived',
     color: Colors.success,
@@ -52,6 +57,10 @@ const vehicleEmojis = {
   auto: '🛺',
   cabEconomy: '🚗',
   cabPremium: '🚙',
+  pickupTruck: '🛻',
+  miniTruck: '🚚',
+  largeTruck: '🚛',
+  containerTruck: '🚛',
 };
 
 export const ActivityScreen: React.FC = () => {
@@ -93,11 +102,12 @@ export const ActivityScreen: React.FC = () => {
   };
 
   const renderRideItem = ({ item }: { item: Ride }) => {
-    const status = statusConfig[item.status];
+    const status = statusConfig[item.status as keyof typeof statusConfig] || statusConfig.SEARCHING_FOR_RIDER;
     const StatusIcon = status.icon;
 
     return (
       <TouchableOpacity
+        onPress={() => navigation.navigate('RideDetails', { ride: item })}
         className="bg-white rounded-2xl p-4 mb-3 shadow-sm"
         activeOpacity={0.7}
       >
@@ -105,7 +115,7 @@ export const ActivityScreen: React.FC = () => {
         <View className="flex-row items-center justify-between mb-3">
           <View className="flex-row items-center">
             <Text className="text-2xl mr-2">
-              {vehicleEmojis[item.vehicle]}
+              {vehicleEmojis[item.vehicle as keyof typeof vehicleEmojis] || '🚘'}
             </Text>
             <View>
               <Text className="text-base font-semibold text-secondary capitalize">

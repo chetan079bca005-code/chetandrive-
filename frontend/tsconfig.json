@@ -9,8 +9,8 @@
     }
   },
   "include": [
-    "src/**/*.ts",
-    "src/**/*.tsx",
+    "**/*.ts",
+    "**/*.tsx",
     "nativewind-env.d.ts"
   ],
   "exclude": [

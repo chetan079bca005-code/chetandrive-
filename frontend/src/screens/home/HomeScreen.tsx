@@ -44,9 +44,9 @@ export const HomeScreen: React.FC = () => {
   } = useLocationStore();
 
   const { nearbyRiders, setNearbyRiders, setCurrentRide, currentRide } = useRideStore();
-  const { user, isAuthenticated, tokens } = useAuthStore();
+  const {  user, isAuthenticated, tokens , activeRole } = useAuthStore();
   const { savedPlaces } = usePreferencesStore();
-  const isRider = user?.role === 'rider';
+  const isRider = activeRole === 'rider';
 
   const [onDuty, setOnDuty] = useState(false);
   const [rideOffers, setRideOffers] = useState<Ride[]>([]);
@@ -545,7 +545,7 @@ export const HomeScreen: React.FC = () => {
               style={{ maxHeight: screenHeight * 0.45 }}
               showsVerticalScrollIndicator={false}
             >
-              {isRider ? (
+              {!isRider ? (
                 <>
                 <View className="flex-row items-center justify-between mb-3">
                   <View>

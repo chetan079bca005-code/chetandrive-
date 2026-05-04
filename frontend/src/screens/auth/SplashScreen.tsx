@@ -7,9 +7,9 @@ import { useAuthStore } from '../../store';
 import { authService } from '../../services';
 import { Colors } from '../../config/colors';
 
-export const SplashScreen: React.FC = () => {
+  export const SplashScreen: React.FC = () => {
   const navigation = useNavigation<NativeStackNavigationProp<any>>();
-  const { isAuthenticated, isOnboarded, tokens, setTokens, logout, setLoading } = useAuthStore();
+  const { isAuthenticated, isOnboarded, user, tokens, setTokens, logout, setLoading } = useAuthStore();
   const [isBootstrapping, setIsBootstrapping] = useState(true);
   const [dot1] = useState(new Animated.Value(0.3));
   const [dot2] = useState(new Animated.Value(0.3));
@@ -67,7 +67,11 @@ export const SplashScreen: React.FC = () => {
 
     const timer = setTimeout(() => {
       if (isAuthenticated) {
-        navigation.replace('MainDrawer');
+        if (user?.driverStatus === 'pending') {
+          navigation.replace('DriverRegistration');
+        } else {
+          navigation.replace('MainDrawer');
+        }
       } else if (isOnboarded) {
         navigation.replace('Login');
       } else {

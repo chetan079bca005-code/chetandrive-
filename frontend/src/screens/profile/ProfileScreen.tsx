@@ -72,8 +72,8 @@ const MenuItem: React.FC<MenuItemProps> = ({
 
 export const ProfileScreen: React.FC = () => {
   const navigation = useNavigation<NativeStackNavigationProp<any>>();
-  const { user, logout } = useAuthStore();
-  const isRider = user?.role === 'rider';
+  const { user, logout, activeRole } = useAuthStore();
+  const isRider = activeRole === 'rider';
 
   const handleLogout = () => {
     Alert.alert(
@@ -135,7 +135,7 @@ export const ProfileScreen: React.FC = () => {
                   <Text className="text-sm font-medium text-secondary ml-1">4.9</Text>
                 </View>
                 <Text className="text-sm text-gray-500 ml-2 capitalize">
-                  {user?.role || 'Customer'}
+                  {activeRole || 'Customer'}
                 </Text>
               </View>
             </View>

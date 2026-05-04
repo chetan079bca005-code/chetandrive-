@@ -46,8 +46,8 @@ export const RideTrackingScreen: React.FC = () => {
     clearServiceDetails,
     clearRide,
   } = useRideStore();
-  const { user } = useAuthStore();
-  const isRider = user?.role === 'rider';
+  const {  user , activeRole } = useAuthStore();
+  const isRider = activeRole === 'rider';
 
   const { pickupLocation, dropLocation, clearLocations } = useLocationStore();
 

@@ -216,6 +216,14 @@ class SocketManager {
     this.socket?.emit('subscribeRide', rideId);
   }
 
+  sendChatMessage(data: { rideId: string; content: string; type?: 'text' | 'location' | 'image' | 'system' }): void {
+    this.socket?.emit('chat:send', data);
+  }
+
+  setChatTyping(data: { rideId: string; isTyping: boolean }): void {
+    this.socket?.emit('chat:typing', data);
+  }
+
   // ==================== RIDER EVENTS ====================
 
   // Go on duty (start accepting rides)
@@ -283,6 +291,18 @@ class SocketManager {
   // Listen for errors
   onError(callback: (data: { message: string }) => void): () => void {
     return this.on('error', callback);
+  }
+
+  onChatMessage(callback: (message: any) => void): () => void {
+    return this.on('chat:new', callback);
+  }
+
+  onChatTyping(callback: (data: { rideId: string; userId: string; isTyping: boolean }) => void): () => void {
+    return this.on('chat:typing', callback);
+  }
+
+  onChatRead(callback: (data: { rideId: string; userId: string }) => void): () => void {
+    return this.on('chat:read', callback);
   }
 }
 

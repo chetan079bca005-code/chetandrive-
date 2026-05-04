@@ -9,6 +9,7 @@ interface AuthState {
   isAuthenticated: boolean;
   isLoading: boolean;
   isOnboarded: boolean;
+  activeRole: 'rider' | 'driver';
   
   // Actions
   setUser: (user: User) => void;
@@ -17,6 +18,7 @@ interface AuthState {
   logout: () => void;
   setLoading: (loading: boolean) => void;
   setOnboarded: (onboarded: boolean) => void;
+  setActiveRole: (role: 'rider' | 'driver') => void;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -27,6 +29,7 @@ export const useAuthStore = create<AuthState>()(
       isAuthenticated: false,
       isLoading: false,
       isOnboarded: false,
+      activeRole: 'rider',
       
       setUser: (user) => set({ user }),
       
@@ -41,17 +44,21 @@ export const useAuthStore = create<AuthState>()(
         tokens,
         isAuthenticated: true,
         isLoading: false,
+        activeRole: 'rider',
       }),
       
       logout: () => set({
         user: null,
         tokens: null,
         isAuthenticated: false,
+        activeRole: 'rider',
       }),
       
       setLoading: (isLoading) => set({ isLoading }),
       
       setOnboarded: (isOnboarded) => set({ isOnboarded }),
+
+      setActiveRole: (activeRole) => set({ activeRole }),
     }),
     {
       name: 'auth-storage',
@@ -61,6 +68,7 @@ export const useAuthStore = create<AuthState>()(
         tokens: state.tokens,
         isAuthenticated: state.isAuthenticated,
         isOnboarded: state.isOnboarded,
+        activeRole: state.activeRole,
       }),
     }
   )

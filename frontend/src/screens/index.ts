@@ -1,5 +1,5 @@
 // Auth Screens
-export { SplashScreen, OnboardingScreen, LoginScreen } from './auth';
+export { SplashScreen, OnboardingScreen, LoginScreen, DriverRegistrationScreen } from './auth';
 
 // Home Screens
 export { HomeScreen, LocationSearchScreen, ChooseOnMapScreen } from './home';
@@ -17,7 +17,7 @@ export {
 } from './ride';
 
 // Activity Screens
-export { ActivityScreen } from './activity';
+export { ActivityScreen, RideDetailsScreen } from './activity';
 
 // Profile Screens
 export {

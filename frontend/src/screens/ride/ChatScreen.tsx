@@ -23,6 +23,8 @@ import {
 import { useChatStore } from '../../store';
 import { Colors } from '../../config/colors';
 import { ChatMessage, DriverProfile, QuickReply } from '../../types';
+import { chatService, socketManager } from '../../services';
+import { useAuthStore } from '../../store';
 
 type RouteParams = {
   Chat: {
@@ -36,13 +38,17 @@ export const ChatScreen: React.FC = () => {
   const navigation = useNavigation<any>();
   const route = useRoute<RouteProp<RouteParams, 'Chat'>>();
   const { driver } = route.params;
+  const rideId = route.params.rideId;
+  const { user } = useAuthStore();
 
   const {
     messages,
     quickReplies,
     addMessage,
+    setMessages,
     setTyping,
     otherTyping,
+    setOtherTyping,
     markAllAsRead,
   } = useChatStore();
 
@@ -50,46 +56,64 @@ export const ChatScreen: React.FC = () => {
   const flatListRef = useRef<FlatList>(null);
 
   useEffect(() => {
-    markAllAsRead();
-  }, []);
+    let mounted = true;
+    const bootstrapChat = async () => {
+      if (!rideId) return;
+      try {
+        if (!socketManager.isConnected()) {
+          await socketManager.connect();
+        }
+        socketManager.subscribeToRide(rideId);
+        const response = await chatService.getRideMessages(rideId);
+        if (mounted) {
+          setMessages(response.messages);
+        }
+        await chatService.markRideMessagesAsRead(rideId);
+      } catch (error) {
+        console.error('Failed to initialize chat:', error);
+      }
+    };
+
+    const unsubNew = socketManager.onChatMessage((incoming: ChatMessage) => {
+      if (!rideId || incoming.rideId !== rideId) return;
+      addMessage(incoming);
+    });
+    const unsubTyping = socketManager.onChatTyping((payload: { rideId: string; userId: string; isTyping: boolean }) => {
+      if (!rideId || payload.rideId !== rideId || payload.userId === user?._id) return;
+      setOtherTyping(payload.isTyping);
+    });
+    const unsubRead = socketManager.onChatRead((payload: { rideId: string; userId: string }) => {
+      if (!rideId || payload.rideId !== rideId || payload.userId === user?._id) return;
+      markAllAsRead();
+    });
+
+    bootstrapChat();
+
+    return () => {
+      mounted = false;
+      setOtherTyping(false);
+      unsubNew();
+      unsubTyping();
+      unsubRead();
+    };
+  }, [rideId, user?._id]);
 
   const handleSend = () => {
     if (!inputText.trim()) return;
+    if (!rideId) return;
 
-    const newMessage: ChatMessage = {
-      _id: `msg_${Date.now()}`,
-      rideId: route.params.rideId || 'pending',
-      senderId: 'current_user',
-      senderType: 'passenger',
-      content: inputText.trim(),
-      type: 'text',
-      read: false,
-      createdAt: new Date().toISOString(),
-    };
-
-    addMessage(newMessage);
+    const content = inputText.trim();
+    socketManager.setChatTyping({ rideId, isTyping: false });
     setInputText('');
 
-    // Simulate driver response
-    setTimeout(() => {
-      const responses = [
-        "Okay, I'm on my way!",
-        "Got it, see you soon!",
-        "No problem, I'll be there shortly.",
-        "Thanks for letting me know!",
-      ];
-      const driverResponse: ChatMessage = {
-        _id: `msg_${Date.now() + 1}`,
-        rideId: route.params.rideId || 'pending',
-        senderId: driver._id,
-        senderType: 'driver',
-        content: responses[Math.floor(Math.random() * responses.length)],
-        type: 'text',
-        read: false,
-        createdAt: new Date().toISOString(),
-      };
-      addMessage(driverResponse);
-    }, 2000);
+    chatService.sendRideMessage(rideId, {
+      content,
+      type: 'text',
+    }).then((response) => {
+      addMessage(response.chatMessage);
+    }).catch((error) => {
+      console.error('Failed to send message:', error);
+    });
   };
 
   const handleQuickReply = (reply: QuickReply) => {
@@ -270,7 +294,14 @@ export const ChatScreen: React.FC = () => {
                 placeholder="Type a message..."
                 placeholderTextColor={Colors.gray400}
                 value={inputText}
-                onChangeText={setInputText}
+                onChangeText={(value) => {
+                  setInputText(value);
+                  if (rideId) {
+                    const typing = value.trim().length > 0;
+                    setTyping(typing);
+                    socketManager.setChatTyping({ rideId, isTyping: typing });
+                  }
+                }}
                 multiline
                 maxLength={500}
               />

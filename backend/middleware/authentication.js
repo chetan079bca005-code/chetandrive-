@@ -12,7 +12,6 @@ const auth = async (req, res, next) => {
   try {
     const payload = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
     req.user = { id: payload.id, phone: payload.phone };
-    req.socket = req.io;
 
     const user = await User.findById(payload.id);
 
@@ -21,6 +20,7 @@ const auth = async (req, res, next) => {
     }
 
     req.user.role = user.role;
+    req.user.driverStatus = user.driverStatus;
 
     next();
   } catch (error) {

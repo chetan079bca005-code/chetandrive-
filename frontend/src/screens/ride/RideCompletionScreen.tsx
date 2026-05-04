@@ -62,8 +62,8 @@ export const RideCompletionScreen: React.FC = () => {
   const route = useRoute<RouteProp<RouteParams, 'RideCompletion'>>();
   const { currentRide, clearRide, clearServiceDetails } = useRideStore();
   const { clearLocations } = useLocationStore();
-  const { user } = useAuthStore();
-  const isRider = user?.role === 'rider';
+  const {  user , activeRole } = useAuthStore();
+  const isRider = activeRole === 'rider';
 
   const [rating, setRating] = useState(0);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);

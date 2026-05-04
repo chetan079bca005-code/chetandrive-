@@ -2,13 +2,18 @@ import geolib from "geolib";
 import jwt from "jsonwebtoken";
 import User from "../models/User.js";
 import Ride from "../models/Ride.js";
+import ChatMessage from "../models/ChatMessage.js";
 
 const onDutyRiders = new Map();
 
 const handleSocketConnection = (io) => {
   io.use(async (socket, next) => {
     try {
-      const token = socket.handshake.headers.access_token;
+      const token =
+        socket.handshake.auth?.access_token ||
+        socket.handshake.headers?.access_token ||
+        socket.handshake.headers?.["access-token"] ||
+        (socket.handshake.headers?.authorization || "").replace(/^Bearer\s+/i, "");
       if (!token) return next(new Error("Authentication invalid: No token"));
 
       const payload = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
@@ -18,6 +23,8 @@ const handleSocketConnection = (io) => {
       socket.user = {
         id: payload.id,
         role: user.role,
+        driverStatus: user.driverStatus,
+        driverStatus: user.driverStatus,
         profile: {
           _id: user._id,
           name: user.name || user.phone,
@@ -202,9 +209,53 @@ const handleSocketConnection = (io) => {
       }
     });
 
+    socket.on("chat:typing", ({ rideId, isTyping }) => {
+      if (!rideId) return;
+      socket.to(`ride_${rideId}`).emit("chat:typing", {
+        rideId,
+        userId: user.id,
+        isTyping: Boolean(isTyping),
+      });
+    });
+
+    socket.on("chat:send", async ({ rideId, content, type = "text" }) => {
+      try {
+        if (!rideId || !content || !String(content).trim()) return;
+
+        const ride = await Ride.findById(rideId);
+        if (!ride) return;
+
+        const isCustomer = ride.customer?.toString() === user.id;
+        const isRider = ride.rider?.toString() === user.id;
+        if (!isCustomer && !isRider) return;
+
+        const newMessage = await ChatMessage.create({
+          ride: rideId,
+          sender: user.id,
+          senderType: isCustomer ? "passenger" : "driver",
+          content: String(content).trim(),
+          type,
+          readBy: [user.id],
+        });
+
+        io.to(`ride_${rideId}`).emit("chat:new", {
+          _id: newMessage._id,
+          rideId: newMessage.ride,
+          senderId: newMessage.sender,
+          senderType: newMessage.senderType,
+          content: newMessage.content,
+          type: newMessage.type,
+          read: true,
+          createdAt: newMessage.createdAt,
+        });
+      } catch (error) {
+        socket.emit("error", { message: "Failed to send message" });
+      }
+    });
+
     socket.on("disconnect", () => {
       if (user.role === "rider") onDutyRiders.delete(user.id);
-      console.log(`${user.role} ${user.id} disconnected.`);
+      console.log(`User ${user.id} disconnected.`);
     });
 
     function updateNearbyriders() {
