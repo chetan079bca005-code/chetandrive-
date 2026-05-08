@@ -127,6 +127,12 @@ class SocketManager {
           console.error('Socket error:', data.message);
           this.emit('error', data);
         });
+
+        // Add listener for Optimized Ride Offfer from backend Batch Engine (The Broker)
+        this.socket.on('optimizedRideOffer', (rideData: Ride) => {
+          console.log('Received Optimized Dispatch:', rideData);
+          this.emit('rideOffer', rideData); // Frontend expects rideOffer typically mapped 
+        });
       });
     });
   }

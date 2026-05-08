@@ -1,3 +1,5 @@
+import axios from 'axios';
+
 export const calculateDistance = (lat1, lon1, lat2, lon2) => {
   const R = 6371;
   const dLat = (lat2 - lat1) * (Math.PI / 180);
@@ -10,6 +12,30 @@ export const calculateDistance = (lat1, lon1, lat2, lon2) => {
       Math.sin(dLon / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
+};
+
+// OSRM routing implementation for real road distances and ETAs
+export const calculateRouteOSRM = async (lat1, lon1, lat2, lon2) => {
+  try {
+    // OSRM coordinates are in longitude,latitude order
+    const url = `http://router.project-osrm.org/route/v1/driving/${lon1},${lat1};${lon2},${lat2}?overview=false`;
+    const response = await axios.get(url);
+    if (response.data.code === 'Ok' && response.data.routes.length > 0) {
+      const route = response.data.routes[0];
+      return {
+        distanceInfo: route.distance / 1000, // convert meters to km
+        durationInfo: route.duration / 60, // convert seconds to minutes
+      };
+    }
+  } catch (error) {
+    console.error("OSRM Error, falling back to Haversine:", error.message);
+  }
+  
+  // Fallback to bird's-eye distance (Haversine)
+  const fallbackDistance = calculateDistance(lat1, lon1, lat2, lon2);
+  // Estimate duration assuming 40 km/h average city speed
+  const fallbackDuration = (fallbackDistance / 40) * 60; 
+  return { distanceInfo: fallbackDistance, durationInfo: fallbackDuration };
 };
 
 export const calculateFare = (distance) => {

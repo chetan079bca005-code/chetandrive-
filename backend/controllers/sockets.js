@@ -3,10 +3,36 @@ import jwt from "jsonwebtoken";
 import User from "../models/User.js";
 import Ride from "../models/Ride.js";
 import ChatMessage from "../models/ChatMessage.js";
+import { matchRidersAndDrivers } from "../utils/matcher.js";
 
 const onDutyRiders = new Map();
+const pendingRideRequests = new Map(); // Store unmatched rides here for batch processing
 
 const handleSocketConnection = (io) => {
+  // Batch Matching Cron Loop (runs every 10 seconds) -> The "Broker"
+  setInterval(async () => {
+    if (pendingRideRequests.size === 0 || onDutyRiders.size === 0) return;
+
+    // Convert Maps to Arrays
+    const ridersArray = Array.from(pendingRideRequests.values());
+    const driversArray = Array.from(onDutyRiders.values());
+
+    // Call Gale-Shapley / Hungarian Matching
+    const matches = matchRidersAndDrivers(ridersArray, driversArray);
+
+    for (const match of matches) {
+      const { riderId: rideId, driverSocket } = match;
+      const rideObj = pendingRideRequests.get(rideId);
+      
+      if (rideObj && rideObj.rideData) {
+        // Automatically send the optimized matched dispatch
+        io.to(driverSocket).emit("optimizedRideOffer", rideObj.rideData);
+        // Remove from pending so we don't dispatch it repeatedly in the next cycle unless rejected
+        pendingRideRequests.delete(rideId);
+      }
+    }
+  }, 10000); // 10s Batch Window
+
   io.use(async (socket, next) => {
     try {
       const token =
@@ -50,7 +76,7 @@ const handleSocketConnection = (io) => {
     console.log(`User Joined: ${user.id} (${user.role})`);
 
     if (user.role === "rider") {
-      socket.on("goOnDuty", (coords) => {
+      socket.on("goOnDuty", async (coords) => {
         onDutyRiders.set(user.id, {
           socketId: socket.id,
           coords,
@@ -59,20 +85,47 @@ const handleSocketConnection = (io) => {
         });
         socket.join("onDuty");
         console.log(`rider ${user.id} is now on duty.`);
+        
+        // Geospatial Indexing step - save location to DB for batch matching
+        try {
+          await User.findByIdAndUpdate(user.id, {
+            isOnline: true,
+            currentLocation: {
+              type: "Point",
+              coordinates: [coords.longitude, coords.latitude]
+            }
+          });
+        } catch(e) { console.error("DB update error on duty", e) }
+
         updateNearbyriders();
       });
 
-      socket.on("goOffDuty", () => {
+      socket.on("goOffDuty", async () => {
         onDutyRiders.delete(user.id);
         socket.leave("onDuty");
         console.log(`rider ${user.id} is now off duty.`);
+
+        try {
+          await User.findByIdAndUpdate(user.id, { isOnline: false });
+        } catch(e) { console.error("DB update error off duty", e) }
+
         updateNearbyriders();
       });
 
-      socket.on("updateLocation", (coords) => {
+      socket.on("updateLocation", async (coords) => {
         if (onDutyRiders.has(user.id)) {
           onDutyRiders.get(user.id).coords = coords;
           console.log(`rider ${user.id} updated location.`);
+
+          try {
+            await User.findByIdAndUpdate(user.id, {
+              currentLocation: {
+                type: "Point",
+                coordinates: [coords.longitude, coords.latitude]
+              }
+            });
+          } catch(e) {}
+
           updateNearbyriders();
           socket.to(`rider_${user.id}`).emit("riderLocationUpdate", {
             riderId: user.id,
@@ -118,21 +171,36 @@ const handleSocketConnection = (io) => {
           const ride = await Ride.findById(rideId).populate("customer rider");
           if (!ride) return socket.emit("error", { message: "Ride not found" });
 
-          const { latitude: pickupLat, longitude: pickupLon } = ride.pickup;
+          // Add to pending batch queue for the Hungarian Engine broker
+          pendingRideRequests.set(rideId, {
+            rideId,
+            pickup: {
+              latitude: ride.pickup.location?.coordinates[1] || ride.pickup.latitude,
+              longitude: ride.pickup.location?.coordinates[0] || ride.pickup.longitude
+            },
+            vehicle: ride.vehicle,
+            rideData: ride
+          });
 
           let retries = 0;
           let rideAccepted = false;
           let canceled = false;
           const MAX_RETRIES = 20;
 
+          // Legacy search (Broadcast model) fallback
           const retrySearch = async () => {
-            if (canceled) return;
+            if (canceled || rideAccepted) return;
             retries++;
+            
+            // If the matching broker didn't pick it up (e.g. strict radius issue), let's broad sweep fallback
+            const pickupLat = ride.pickup.location?.coordinates[1] || ride.pickup.latitude;
+            const pickupLon = ride.pickup.location?.coordinates[0] || ride.pickup.longitude;
 
             const riders = sendNearbyRiders(socket, { latitude: pickupLat, longitude: pickupLon }, ride);
-            if (riders.length > 0 || retries >= MAX_RETRIES) {
+            if (retries >= MAX_RETRIES) {
               clearInterval(retryInterval);
-              if (!rideAccepted && retries >= MAX_RETRIES) {
+              if (!rideAccepted) {
+                pendingRideRequests.delete(rideId);
                 await Ride.findByIdAndDelete(rideId);
                 socket.emit("error", { message: "No riders found within 5 minutes." });
               }
@@ -143,11 +211,13 @@ const handleSocketConnection = (io) => {
 
           socket.on("rideAccepted", () => {
             rideAccepted = true;
+            pendingRideRequests.delete(rideId);
             clearInterval(retryInterval);
           });
 
           socket.on("cancelRide", async () => {
             canceled = true;
+            pendingRideRequests.delete(rideId);
             clearInterval(retryInterval);
             await Ride.findByIdAndDelete(rideId);
             socket.emit("rideCanceled", { message: "Ride canceled" });

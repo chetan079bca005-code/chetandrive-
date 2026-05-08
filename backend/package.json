@@ -12,6 +12,7 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "axios": "^1.16.0",
     "cloudinary": "^2.10.0",
     "cors": "^2.8.6",
     "dotenv": "^16.4.5",
@@ -20,9 +21,11 @@
     "express-rate-limit": "^8.4.1",
     "geolib": "^3.3.4",
     "google-auth-library": "^10.6.2",
+    "h3-js": "^4.4.0",
     "http-status-codes": "^2.3.0",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.7.0",
+    "munkres-js": "^1.2.2",
     "nodemailer": "^8.0.7",
     "socket.io": "^4.8.0"
   },

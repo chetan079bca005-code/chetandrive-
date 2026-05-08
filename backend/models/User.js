@@ -5,6 +5,18 @@ const { Schema } = mongoose;
 
 const userSchema = new Schema(
   {
+    currentLocation: {
+      type: {
+        type: String,
+        enum: ["Point"],
+        default: "Point",
+      },
+      coordinates: {
+        type: [Number],
+        default: [0, 0],
+      },
+    },
+    isOnline: { type: Boolean, default: false },
     role: {
       type: String,
       enum: ["user", "admin"],
@@ -138,6 +150,8 @@ userSchema.methods.createRefreshToken = function () {
     }
   );
 };
+
+userSchema.index({ currentLocation: "2dsphere" });
 
 const User = mongoose.model("User", userSchema);
 export default User;

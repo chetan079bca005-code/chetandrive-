@@ -5,7 +5,9 @@ import {
   calculateDistance,
   calculateFare,
   generateOTP,
+  calculateRouteOSRM
 } from "../utils/mapUtils.js";
+import { calculateSurgeMultiplier } from "../utils/surgeUtils.js";
 
 const getIdString = (docOrId) => {
   if (!docOrId) return "";
@@ -49,12 +51,19 @@ export const createRide = async (req, res) => {
 
   const customer = req.user;
 
-
-
   try {
-    const distance = calculateDistance(pickupLat, pickupLon, dropLat, dropLon);
-    const fare = calculateFare(distance);
-    const recommendedFare = Math.round(fare[vehicle]);
+    // Phase 1: Try real map routing, fallback to Haversine
+    const routingResult = await calculateRouteOSRM(pickupLat, pickupLon, dropLat, dropLon);
+    const distance = routingResult.distanceInfo;
+    
+    // Phase 2: Compute Base Fare
+    const baseFares = calculateFare(distance);
+    let recommendedFare = Math.round(baseFares[vehicle]);
+
+    // Phase 3: Demand / Surge Pricing
+    const surgeMultiplier = await calculateSurgeMultiplier(pickupLat, pickupLon);
+    recommendedFare = Math.round(recommendedFare * surgeMultiplier);
+
     const normalizedProposedFare = Math.round(Number(proposedFare));
     if (!normalizedProposedFare || normalizedProposedFare <= 0) {
       throw new BadRequestError("Invalid proposed fare");
@@ -70,10 +79,18 @@ export const createRide = async (req, res) => {
       serviceDetails,
       pickup: {
         address: pickupAddress,
-        latitude: pickupLat,
-        longitude: pickupLon,
+        location: {
+          type: "Point",
+          coordinates: [pickupLon, pickupLat] // GeoJSON format
+        },
       },
-      drop: { address: dropAddress, latitude: dropLat, longitude: dropLon },
+      drop: { 
+        address: dropAddress, 
+        location: {
+          type: "Point",
+          coordinates: [dropLon, dropLat]
+        }
+      },
       customer: customer.id,
       otp: generateOTP(),
     });

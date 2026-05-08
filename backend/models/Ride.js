@@ -29,13 +29,17 @@ const rideSchema = new Schema(
     },
     pickup: {
       address: { type: String, required: true },
-      latitude: { type: Number, required: true },
-      longitude: { type: Number, required: true },
+      location: {
+        type: { type: String, enum: ["Point"], default: "Point" },
+        coordinates: { type: [Number], required: true }, // [longitude, latitude]
+      },
     },
     drop: {
       address: { type: String, required: true },
-      latitude: { type: Number, required: true },
-      longitude: { type: Number, required: true },
+      location: {
+        type: { type: String, enum: ["Point"], default: "Point" },
+        coordinates: { type: [Number], required: true }, // [longitude, latitude]
+      },
     },
     fare: {
       type: Number,
@@ -146,6 +150,9 @@ const rideSchema = new Schema(
     timestamps: true,
   }
 );
+
+rideSchema.index({ "pickup.location": "2dsphere" });
+rideSchema.index({ "drop.location": "2dsphere" });
 
 const Ride = mongoose.model("Ride", rideSchema);
 export default Ride;
